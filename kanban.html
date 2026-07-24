@@ -427,9 +427,21 @@
     transition: background 0.15s ease;
   }
 
-  .dropzone.drag-over,
-  .project-tab.drag-over {
+  .dropzone.drag-over {
     background: var(--overlay);
+  }
+
+  .project-tab.drag-over {
+    background: var(--todo-bg);
+    border-color: var(--todo);
+    color: var(--todo);
+    box-shadow: 0 0 0 2px var(--todo), var(--shadow-hover);
+    transform: translateY(-1px) scale(1.04);
+  }
+
+  .project-tab.drag-over::before {
+    content: '\2192';
+    font-weight: 700;
   }
 
   .card {
