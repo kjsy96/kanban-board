@@ -1660,7 +1660,7 @@
           card.draggable = true;
           card.classList.remove('editing');
           editingNow = false;
-          const newText = text.textContent.trim();
+          const newText = extractEditableText(text).trim();
           if (!newText) {
             removeItem(item.id);
             render();
@@ -1991,6 +1991,41 @@
   // Shared by desktop drop and touch-drag drop: finds the index to insert at
   // within `zone` based on a vertical coordinate, using the midpoint of each
   // existing (non-dragging) card.
+  // Reads the plain-text content of an edited card's contentEditable div,
+  // reconstructing a '\n' at each block/line boundary. Plain `.textContent`
+  // silently drops line breaks: Shift+Enter (via execCommand('insertText'))
+  // produces a new <div> (with a lone <br> if the line is still empty), not a
+  // literal '\n' character, and .textContent has no separator for those
+  // boundaries at all. `.innerText` was tried and rejected — it double-counts
+  // a trailing empty <div><br></div> line, since the <br> and the div
+  // boundary each independently contribute a break.
+  function extractEditableText(root) {
+    let text = '';
+    function walk(node) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        text += node.nodeValue;
+        return;
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE) return;
+      if (node.tagName === 'BR') {
+        text += '\n';
+        return;
+      }
+      if (node.tagName === 'DIV' || node.tagName === 'P') {
+        text += '\n';
+        const onlyChild = node.childNodes.length === 1 ? node.childNodes[0] : null;
+        if (onlyChild && onlyChild.nodeType === Node.ELEMENT_NODE && onlyChild.tagName === 'BR') {
+          return; // empty-line placeholder — already accounted for by the '\n' above
+        }
+        for (const child of node.childNodes) walk(child);
+        return;
+      }
+      for (const child of node.childNodes) walk(child);
+    }
+    for (const child of root.childNodes) walk(child);
+    return text;
+  }
+
   function computeTargetIndex(zone, clientY) {
     const after = [...zone.querySelectorAll('.card:not(.dragging)')].find(card => {
       const rect = card.getBoundingClientRect();
