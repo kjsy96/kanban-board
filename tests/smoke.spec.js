@@ -398,9 +398,16 @@ test('a pre-pool-separation archived sprint (completedItems, no nested arrays) m
   await expect(page.locator('#sprint-history-modal-backdrop')).toBeVisible();
   await expect(page.locator('.sprint-history-row')).toBeVisible();
   await page.locator('.sprint-history-row').click();
+  await expect(page.locator('#sprint-detail-modal-backdrop')).toBeVisible(); // isolated into its own modal
   await expect(page.locator('.sprint-history-detail-item')).toHaveCount(2);
   await expect(page.locator('.sprint-history-detail-item').first()).toContainText('Old finished task');
   await expect(page.locator('.sprint-history-detail-date').first()).not.toBeEmpty();
+
+  // Escape closes one layer at a time: detail modal first...
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#sprint-detail-modal-backdrop')).toBeHidden();
+  await expect(page.locator('#sprint-history-modal-backdrop')).toBeVisible(); // list still open underneath
+  // ...then the list modal on a second press.
   await page.keyboard.press('Escape');
   await expect(page.locator('#sprint-history-modal-backdrop')).toBeHidden();
 
@@ -578,10 +585,13 @@ test('sprint can be edited, deleted (returning even Done tasks to Backlog), and 
   await expect(page.locator('.sprint-history-row')).toHaveCount(2);
   const sprintBRow = page.locator('.sprint-history-row', { hasText: 'Sprint B' });
   await sprintBRow.click();
+  await expect(page.locator('#sprint-detail-modal-title')).toHaveText('Sprint B');
   await expect(page.locator('.sprint-history-detail-item')).toContainText('Second sprint task');
-  // collapsing again hides the detail
-  await sprintBRow.click();
-  await expect(page.locator('.sprint-history-detail-item')).toHaveCount(0);
+  // closing the detail modal (via its own × button this time) returns to
+  // the list modal, which is still open underneath rather than reset.
+  await page.locator('#sprint-detail-modal-close').click();
+  await expect(page.locator('#sprint-detail-modal-backdrop')).toBeHidden();
+  await expect(page.locator('#sprint-history-modal-backdrop')).toBeVisible();
 
   expect(errors, 'no console/page errors across edit/delete/history-detail').toEqual([]);
 });
