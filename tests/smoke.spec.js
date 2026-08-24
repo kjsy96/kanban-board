@@ -209,7 +209,7 @@ test('story point estimates can be set, typed multi-digit, and cleared', async (
   expect(errors, 'no console/page errors while setting/clearing points').toEqual([]);
 });
 
-test('burndown chart reflects points burned and handles edge cases', async ({ page }) => {
+test('burndown chart derives from completion dates: leaving Done un-completes an item, and backdating shifts the chart', async ({ page }) => {
   const errors = [];
   page.on('pageerror', (err) => errors.push(err.message));
   page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()); });
@@ -245,8 +245,8 @@ test('burndown chart reflects points burned and handles edge cases', async ({ pa
 
   await page.locator('#project-toolbar button', { hasText: 'Start Sprint' }).click();
   await page.locator('#sprint-name-input').fill('Points Sprint');
-  await page.locator('#sprint-start-input').fill('2026-01-01');
-  await page.locator('#sprint-end-input').fill('2026-01-10');
+  await page.locator('#sprint-start-input').fill('2026-08-20');
+  await page.locator('#sprint-end-input').fill('2026-09-03');
   const checklist = page.locator('#sprint-modal-checklist');
   await checklist.locator('.checklist-row', { hasText: 'Three point task' }).locator('input[type="checkbox"]').check();
   await checklist.locator('.checklist-row', { hasText: 'Five point task' }).locator('input[type="checkbox"]').check();
@@ -259,22 +259,64 @@ test('burndown chart reflects points burned and handles edge cases', async ({ pa
   await expect(page.locator('.burndown-actual')).toHaveAttribute('d', /^M/);
   await expect(page.locator('.burndown-ideal')).toHaveAttribute('d', /^M/);
 
-  // complete one task -- today's actual point should reflect 5 remaining, not 8
-  await page.locator('#dropzone-todo .card', { hasText: 'Three point task' }).dragTo(page.locator('#dropzone-done'));
-  await expect(page.locator('.burndown-dot').last()).toHaveAttribute('cy', /.+/);
+  const today = await page.evaluate(() => todayDateStr());
+  let remainingToday = await page.evaluate(() => remainingAsOf(activeProject().activeSprint, todayDateStr()));
+  expect(remainingToday).toBe(8); // baseline -- nothing done yet
 
-  // simulate a multi-day sprint by injecting earlier burnHistory entries
-  // directly (same technique this project has used before for hard-to-
-  // naturally-trigger date-based scenarios) and confirm the chart still
-  // renders cleanly with several points plotted
-  const dotCountBefore = await page.locator('.burndown-dot').count();
-  await page.evaluate(() => {
-    const proj = activeProject();
-    proj.activeSprint.burnHistory.unshift({ date: '2026-01-02', remaining: 8 }, { date: '2026-01-03', remaining: 8 });
-    renderProjectToolbar();
-  });
-  const dotCountAfter = await page.locator('.burndown-dot').count();
-  expect(dotCountAfter).toBeGreaterThan(dotCountBefore);
+  // Complete one task -- it should pick up today's date automatically, and
+  // the chart (recomputed from completedAt, not a stored snapshot) should
+  // reflect 5 remaining as of today.
+  await page.locator('#dropzone-todo .card', { hasText: 'Three point task' }).dragTo(page.locator('#dropzone-done'));
+  remainingToday = await page.evaluate(() => remainingAsOf(activeProject().activeSprint, todayDateStr()));
+  expect(remainingToday).toBe(5);
+  let completedAt = await page.evaluate(() =>
+    activeProject().activeSprint.done.find(i => i.text === 'Three point task').completedAt);
+  expect(completedAt).toBe(today);
+
+  // Regression check for the completedAt-clearing fix: dragging a Done task
+  // straight out to Backlog (bypassing To do/In progress/Review) must still
+  // clear its completedAt -- otherwise a stale date could later ride into a
+  // *different* future sprint and make that sprint's chart silently ignore
+  // it. Removing a task that was already Done doesn't change "remaining"
+  // either way (it wasn't counted as remaining before or after), so only
+  // completedAt is asserted here.
+  await page.locator('#dropzone-done .card', { hasText: 'Three point task' }).dragTo(page.locator('#dropzone-backlog'));
+  completedAt = await page.evaluate(() =>
+    activeProject().backlog.find(i => i.text === 'Three point task').completedAt);
+  expect(completedAt).toBeNull();
+
+  // Bring it back and re-complete it, restoring the "5 remaining" state.
+  await page.locator('#dropzone-backlog .card', { hasText: 'Three point task' }).dragTo(page.locator('#dropzone-done'));
+  remainingToday = await page.evaluate(() => remainingAsOf(activeProject().activeSprint, todayDateStr()));
+  expect(remainingToday).toBe(5);
+
+  // Bug report: moving a still-*pending* task out of the sprint (here, Five
+  // point task, straight to Backlog) must reduce "remaining" -- it's no
+  // longer part of the sprint's scope at all, done or not.
+  await page.locator('#dropzone-todo .card', { hasText: 'Five point task' }).dragTo(page.locator('#dropzone-backlog'));
+  remainingToday = await page.evaluate(() => remainingAsOf(activeProject().activeSprint, todayDateStr()));
+  expect(remainingToday).toBe(0); // Three point task is done, Five point task left the sprint entirely
+
+  // Bring it back for the backdating check below.
+  await page.locator('#dropzone-backlog .card', { hasText: 'Five point task' }).dragTo(page.locator('#dropzone-todo'));
+  remainingToday = await page.evaluate(() => remainingAsOf(activeProject().activeSprint, todayDateStr()));
+  expect(remainingToday).toBe(5);
+
+  // Bug report: the user should be able to edit/backdate a completion date
+  // (e.g. they forgot to move the card until later) and have the chart
+  // treat that earlier day as when it actually burned down, not "today."
+  const card = page.locator('.card', { hasText: 'Three point task' });
+  await card.hover();
+  await card.locator('.card-menu-btn').click();
+  const completedInput = card.locator('.card-menu-deadline-row', { hasText: 'Completed on' }).locator('input[type="date"]');
+  await completedInput.fill('2026-08-21');
+  await completedInput.blur();
+  await page.keyboard.press('Escape');
+
+  const remainingOnStartDay = await page.evaluate(() => remainingAsOf(activeProject().activeSprint, '2026-08-20'));
+  const remainingAfterBackdatedDay = await page.evaluate(() => remainingAsOf(activeProject().activeSprint, '2026-08-21'));
+  expect(remainingOnStartDay).toBe(8); // both tasks still pending as of the sprint's first day
+  expect(remainingAfterBackdatedDay).toBe(5); // three-point task burned down as of the backdated day
 
   await page.locator('#theme-toggle-btn').click(); // confirm dark mode doesn't throw
   await expect(page.locator('.burndown-svg')).toBeVisible();
@@ -288,7 +330,7 @@ test('burndown chart reflects points burned and handles edge cases', async ({ pa
   await page.locator('#sprint-modal-submit').click();
   await expect(page.locator('.burndown-empty')).toBeVisible();
 
-  expect(errors, 'no console/page errors across the burndown chart flow').toEqual([]);
+  expect(errors, 'no console/page errors across the burndown/completion-date flow').toEqual([]);
 });
 
 test('v1.4-shaped scrum project with an in-progress sprint migrates without data loss', async ({ page }) => {
@@ -309,7 +351,7 @@ test('v1.4-shaped scrum project with an in-progress sprint migrates without data
         activeSprint: {
           id: 's1', name: 'Sprint 7', goal: 'Ship the real thing',
           startDate: '2026-08-10', endDate: '2026-08-24',
-          unit: 'points', startingTotal: 11, burnHistory: [{ date: '2026-08-20', remaining: 11 }]
+          unit: 'points', startingTotal: 11
         },
         sprints: []
       }],
@@ -355,13 +397,18 @@ test('v1.4-shaped scrum project with an in-progress sprint migrates without data
       topLevelReview: p.review,
       activeSprintHasTodo: Array.isArray(p.activeSprint.todo),
       activeSprintTodoLen: p.activeSprint.todo.length,
-      activeSprintDoneLen: p.activeSprint.done.length
+      activeSprintDoneLen: p.activeSprint.done.length,
+      backfilledCompletedAt: p.activeSprint.done[0].completedAt,
+      today: todayDateStr()
     };
   });
   expect(shape.topLevelReview).toBeUndefined();
   expect(shape.activeSprintHasTodo).toBe(true);
   expect(shape.activeSprintTodoLen).toBe(1);
   expect(shape.activeSprintDoneLen).toBe(1);
+  // PR3 migration: a pre-existing Done item with no completedAt gets
+  // backfilled, so the recomputed burndown doesn't treat it as still-pending.
+  expect(shape.backfilledCompletedAt).toBe(shape.today);
 
   expect(errors, 'no console/page errors migrating v1.4 scrum-mode data').toEqual([]);
 });
@@ -413,6 +460,13 @@ test('sprint can be edited, deleted (returning even Done tasks to Backlog), and 
   await expect(page.locator('#project-toolbar button', { hasText: 'Start Sprint' })).toBeVisible();
   await expect(page.locator('[data-count="backlog"]')).toHaveText('1'); // the Done task came back too
   await expect(page.locator('.sprint-history-stack')).toHaveCount(0); // deleted, not archived
+
+  // The returned task's completedAt must be cleared, not carried along --
+  // otherwise a future sprint that later picks it back up from Backlog
+  // would have its burndown wrongly treat it as already completed.
+  const returnedCompletedAt = await page.evaluate(() =>
+    activeProject().backlog.find(i => i.text === 'Task to delete-test').completedAt);
+  expect(returnedCompletedAt).toBeNull();
 
   await page.locator('#undo-btn').click();
   await expect(page.locator('.sprint-info-name')).toHaveText('Sprint A Renamed');

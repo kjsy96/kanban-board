@@ -68,7 +68,6 @@
       deleteBtn.addEventListener('click', () => deleteSprint(proj));
       toolbar.appendChild(deleteBtn);
 
-      upsertTodayBurndownPoint(proj);
       renderBurndownChart(burndownContainer, proj.activeSprint);
     } else {
       const startBtn = document.createElement('button');
@@ -162,7 +161,7 @@
     proj.activeSprint = {
       id: uid(), name: meta.name, goal: meta.goal,
       startDate: meta.startDate, endDate: meta.endDate,
-      unit: unit, startingTotal: startingTotal, burnHistory: [],
+      unit: unit, startingTotal: startingTotal,
       todo: [], doing: [], review: [], done: []
     };
     proj.activeSprint.todo.push(...selected);
@@ -203,6 +202,12 @@
     if (!confirmed) return;
     pushHistory();
     const sprint = proj.activeSprint;
+    // Done items carry a completedAt (see workhorse-render.js's
+    // syncCompletedAt) that's only meaningful while they sit in a sprint's
+    // Done column -- clear it here too, or a stale date could ride along
+    // into Backlog and silently make a *future* sprint's burndown treat it
+    // as already-old-news the moment it's picked up again.
+    sprint.done.forEach(item => { item.completedAt = null; });
     proj.backlog.push(...sprint.todo, ...sprint.doing, ...sprint.review, ...sprint.done);
     proj.activeSprint = null;
     save(state);
@@ -302,43 +307,50 @@
     if (e.key === 'Escape') closeStartSprintModal();
   });
 
-  function todayDateStr() {
-    const d = new Date();
-    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  function dateToDayNum(dateStr) {
+    const parts = dateStr.split('-').map(Number);
+    return Date.UTC(parts[0], parts[1] - 1, parts[2]) / 86400000;
   }
 
-  function sprintRemaining(proj, sprint) {
-    const active = sprint.todo.concat(sprint.doing, sprint.review);
+  function dayNumToDateStr(dayNum) {
+    const d = new Date(dayNum * 86400000);
+    return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
+  }
+
+  // Every day from startDateStr to endDateStr inclusive. Returns just
+  // [startDateStr] if endDateStr falls before it, rather than an empty range
+  // -- keeps the chart showing at least the sprint's starting point instead
+  // of nothing.
+  function dateRange(startDateStr, endDateStr) {
+    const start = dateToDayNum(startDateStr);
+    const end = Math.max(start, dateToDayNum(endDateStr));
+    const days = [];
+    for (let d = start; d <= end; d++) days.push(dayNumToDateStr(d));
+    return days;
+  }
+
+  // Recomputes "remaining" as of a given day directly from each item's
+  // completedAt -- no stored per-day history needed. An item counts as
+  // remaining on a day if it hadn't been completed by then (completedAt is
+  // null, or falls after that day), so editing/backdating a completion date
+  // just shifts which day it drops out of the sum and nothing else needs to
+  // change. String comparison is safe here since dates are zero-padded
+  // 'YYYY-MM-DD'.
+  function remainingAsOf(sprint, dayStr) {
+    const pending = sprint.todo.concat(sprint.doing, sprint.review, sprint.done)
+      .filter(i => !i.completedAt || i.completedAt > dayStr);
     return sprint.unit === 'points'
-      ? active.reduce((sum, i) => sum + (i.points || 0), 0)
-      : active.length;
-  }
-
-  function upsertTodayBurndownPoint(proj) {
-    const sprint = proj.activeSprint;
-    const remaining = sprintRemaining(proj, sprint);
-    const today = todayDateStr();
-    const existing = sprint.burnHistory.find(p => p.date === today);
-    if (existing) {
-      if (existing.remaining === remaining) return;
-      existing.remaining = remaining;
-    } else {
-      sprint.burnHistory.push({ date: today, remaining: remaining });
-    }
-    save(state);
+      ? pending.reduce((sum, i) => sum + (i.points || 0), 0)
+      : pending.length;
   }
 
   // Normalizes any date to its 0..1 position between a sprint's start/end,
-  // clamped -- so a burn-history entry from outside the sprint's own date
-  // range (edge case, but possible if dates get edited or a snapshot is old)
-  // still plots at a valid, on-chart position instead of producing NaN/
-  // off-chart SVG coordinates.
+  // clamped -- so a plotted point from outside the sprint's own date range
+  // (edge case, but possible if dates get edited after the fact) still lands
+  // at a valid, on-chart position instead of producing NaN/off-chart SVG
+  // coordinates.
   function dateFraction(dateStr, startDate, endDate) {
-    const toDays = (s) => {
-      const parts = s.split('-').map(Number);
-      return Date.UTC(parts[0], parts[1] - 1, parts[2]) / 86400000;
-    };
-    const start = toDays(startDate), end = toDays(endDate), cur = toDays(dateStr);
+    const start = dateToDayNum(startDate), end = dateToDayNum(endDate), cur = dateToDayNum(dateStr);
     if (end <= start) return 0;
     return Math.max(0, Math.min(1, (cur - start) / (end - start)));
   }
@@ -359,8 +371,13 @@
 
     const idealPath = 'M ' + x(sprint.startDate) + ' ' + y(total) + ' L ' + x(sprint.endDate) + ' ' + y(0);
 
-    const actualPoints = [{ date: sprint.startDate, remaining: total }]
-      .concat(sprint.burnHistory.slice().sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    // One point per day from the sprint's start through today (or its end
+    // date, if that's already passed) -- fully recomputed on every render,
+    // so there's no stored history to keep in sync as completedAt changes.
+    const today = todayDateStr();
+    const chartEnd = today < sprint.endDate ? today : sprint.endDate;
+    const actualPoints = dateRange(sprint.startDate, chartEnd)
+      .map(day => ({ date: day, remaining: remainingAsOf(sprint, day) }));
     const actualPath = actualPoints.map((p, i) => (i === 0 ? 'M ' : 'L ') + x(p.date) + ' ' + y(p.remaining)).join(' ');
     const dots = actualPoints.map(p =>
       '<circle cx="' + x(p.date) + '" cy="' + y(p.remaining) + '" r="3" class="burndown-dot" />'
