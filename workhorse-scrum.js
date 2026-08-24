@@ -92,11 +92,18 @@
   function renderSprintHistoryModalBody(proj) {
     const body = document.getElementById('sprint-history-modal-body');
     body.innerHTML = '';
+    if (!proj.sprints.length) {
+      const empty = document.createElement('div');
+      empty.className = 'sprint-history-detail-empty';
+      empty.textContent = 'No past sprints.';
+      body.appendChild(empty);
+      return;
+    }
     proj.sprints.slice().reverse().forEach(s => {
       const row = document.createElement('div');
       row.className = 'sprint-history-row';
       row.textContent = s.name + ' (' + formatDeadline(s.startDate) + '–' + formatDeadline(s.endDate) + ')' + (s.goal ? ' — ' + s.goal : '');
-      row.addEventListener('click', () => openSprintDetailModal(s));
+      row.addEventListener('click', () => openSprintDetailModal(proj, s));
       body.appendChild(row);
     });
   }
@@ -119,7 +126,7 @@
   // One isolated sprint's full detail -- opened from a row in the list
   // modal above, layered on top of it (higher z-index backdrop) rather than
   // replacing it, so closing this one returns to the list still open.
-  function openSprintDetailModal(sprint) {
+  function openSprintDetailModal(proj, sprint) {
     document.getElementById('sprint-detail-modal-title').textContent = sprint.name;
     document.getElementById('sprint-detail-modal-meta').textContent =
       formatDeadline(sprint.startDate) + '–' + formatDeadline(sprint.endDate) + (sprint.goal ? ' — ' + sprint.goal : '');
@@ -148,6 +155,62 @@
       });
     }
 
+    const actions = document.getElementById('sprint-detail-modal-actions');
+    actions.innerHTML = '';
+
+    const reopenBtn = document.createElement('button');
+    reopenBtn.className = 'save-status-btn';
+    reopenBtn.textContent = 'Reopen Sprint';
+    reopenBtn.title = 'Make this the active sprint again';
+    reopenBtn.addEventListener('click', () => reopenSprint(proj, sprint));
+    actions.appendChild(reopenBtn);
+
+    // Single Delete button revealing a drop-UP menu (this button sits in the
+    // modal's bottom footer, so a dropdown opening downward would spill past
+    // the modal's own edge) for the two outcomes -- a plain confirm() can't
+    // offer a 3-way choice, so which one fires is decided by which menu item
+    // was clicked instead.
+    const deleteWrap = document.createElement('div');
+    deleteWrap.className = 'sprint-detail-delete-menu';
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'save-status-btn';
+    deleteBtn.textContent = 'Delete';
+    deleteWrap.appendChild(deleteBtn);
+
+    const deleteDropdown = document.createElement('div');
+    deleteDropdown.className = 'sprint-detail-delete-dropdown';
+
+    const keepItem = document.createElement('button');
+    keepItem.className = 'save-menu-item';
+    keepItem.textContent = 'Delete (Keep Tasks)';
+    keepItem.title = 'Remove this sprint from history; its completed tasks return to the Backlog';
+    keepItem.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteDropdown.classList.remove('open');
+      deleteArchivedSprint(proj, sprint, true);
+    });
+    deleteDropdown.appendChild(keepItem);
+
+    const wipeItem = document.createElement('button');
+    wipeItem.className = 'save-menu-item';
+    wipeItem.textContent = 'Delete (Remove Tasks)';
+    wipeItem.title = 'Remove this sprint and its completed tasks entirely';
+    wipeItem.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteDropdown.classList.remove('open');
+      deleteArchivedSprint(proj, sprint, false);
+    });
+    deleteDropdown.appendChild(wipeItem);
+
+    deleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteDropdown.classList.toggle('open');
+    });
+
+    deleteWrap.appendChild(deleteDropdown);
+    actions.appendChild(deleteWrap);
+
     document.getElementById('sprint-detail-modal-backdrop').style.display = 'flex';
   }
 
@@ -159,6 +222,68 @@
   document.getElementById('sprint-detail-modal-backdrop').addEventListener('click', (e) => {
     if (e.target.id === 'sprint-detail-modal-backdrop') closeSprintDetailModal();
   });
+
+  // The delete dropdown is rebuilt fresh every time the detail modal opens
+  // (see openSprintDetailModal above), so there's at most one on screen at
+  // a time -- just look for whichever is currently open rather than needing
+  // a reference captured at creation time.
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('.sprint-detail-delete-menu')) return;
+    const openDropdown = document.querySelector('.sprint-detail-delete-dropdown.open');
+    if (openDropdown) openDropdown.classList.remove('open');
+  });
+
+  // Un-completes a past sprint, making it the active sprint again. Blocked
+  // outright if a different sprint is already active -- rather than
+  // silently completing or discarding that other sprint's in-progress work
+  // to make room, which would be a surprising side effect of an unrelated
+  // click, this just explains the conflict and leaves both sprints alone
+  // until the user resolves it themselves (mirrors how "Start Sprint"
+  // itself is already unavailable while a sprint is active).
+  function reopenSprint(proj, sprint) {
+    if (proj.activeSprint) {
+      alert('Finish or delete your current sprint, "' + proj.activeSprint.name + '," before reopening this one.');
+      return;
+    }
+    const confirmed = confirm('Reopen "' + sprint.name + '"? It will become your active sprint again. You can undo this with Ctrl+Z.');
+    if (!confirmed) return;
+    pushHistory();
+    const idx = proj.sprints.findIndex(s => s.id === sprint.id);
+    if (idx === -1) return;
+    proj.sprints.splice(idx, 1);
+    delete sprint.completedAt; // sprint-level archive timestamp -- matches a freshly-started sprint's shape
+    proj.activeSprint = sprint;
+    save(state);
+    closeSprintDetailModal();
+    closeSprintHistoryModal();
+    render();
+  }
+
+  // Removes a sprint from history permanently. `returnTasksToBacklog`
+  // chooses between the sprint's completed tasks coming back to Backlog
+  // (recoverable, just not credited to any sprint anymore) or being deleted
+  // along with it -- asked up front via which button was clicked, rather
+  // than a single confirm() that can't express a 3-way choice.
+  function deleteArchivedSprint(proj, sprint, returnTasksToBacklog) {
+    const count = sprint.done.length;
+    const taskWord = count === 1 ? 'task' : 'tasks';
+    const confirmed = returnTasksToBacklog
+      ? confirm('Delete "' + sprint.name + '" from history? Its ' + count + ' completed ' + taskWord + ' will be moved to the Backlog. You can undo this with Ctrl+Z.')
+      : confirm('Delete "' + sprint.name + '" and its ' + count + ' completed ' + taskWord + '? They will NOT be moved to the Backlog. You can undo this with Ctrl+Z.');
+    if (!confirmed) return;
+    pushHistory();
+    const idx = proj.sprints.findIndex(s => s.id === sprint.id);
+    if (idx === -1) return;
+    proj.sprints.splice(idx, 1);
+    if (returnTasksToBacklog) {
+      sprint.done.forEach(item => { item.completedAt = null; }); // no longer meaningful once back in Backlog
+      proj.backlog.push(...sprint.done);
+    }
+    save(state);
+    closeSprintDetailModal();
+    renderSprintHistoryModalBody(proj); // list modal stays open, refreshed to drop the deleted row
+    render();
+  }
 
   // Kanban and Scrum are separate, simultaneously-persistent pools (see
   // sendToOtherPool in workhorse-render.js for how a task actually crosses

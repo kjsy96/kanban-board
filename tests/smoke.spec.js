@@ -595,3 +595,136 @@ test('sprint can be edited, deleted (returning even Done tasks to Backlog), and 
 
   expect(errors, 'no console/page errors across edit/delete/history-detail').toEqual([]);
 });
+
+test('past sprints can be reopened (blocked when one is already active) or deleted, with or without keeping their tasks', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (err) => errors.push(err.message));
+  page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()); });
+
+  await page.goto(APP_URL);
+  await page.evaluate(() => {
+    const sprints = [
+      {
+        id: 'sprint-a', name: 'Sprint A', goal: 'Goal A',
+        startDate: '2026-01-01', endDate: '2026-01-14',
+        unit: 'count', startingTotal: 2, completedAt: Date.now(),
+        todo: [], doing: [], review: [],
+        done: [
+          { id: 'a1', text: 'Sprint A task one', created: Date.now(), deadline: null, points: null, completedAt: '2026-01-10' },
+          { id: 'a2', text: 'Sprint A task two', created: Date.now(), deadline: null, points: null, completedAt: '2026-01-12' }
+        ]
+      },
+      {
+        id: 'sprint-b', name: 'Sprint B', goal: 'Goal B',
+        startDate: '2026-02-01', endDate: '2026-02-14',
+        unit: 'count', startingTotal: 1, completedAt: Date.now(),
+        todo: [], doing: [], review: [],
+        done: [{ id: 'b1', text: 'Sprint B task', created: Date.now(), deadline: null, points: null, completedAt: '2026-02-10' }]
+      },
+      {
+        id: 'sprint-c', name: 'Sprint C', goal: 'Goal C',
+        startDate: '2026-03-01', endDate: '2026-03-14',
+        unit: 'count', startingTotal: 1, completedAt: Date.now(),
+        todo: [], doing: [], review: [],
+        done: [{ id: 'c1', text: 'Sprint C task', created: Date.now(), deadline: null, points: null, completedAt: '2026-03-10' }]
+      }
+    ];
+    const state = {
+      projects: [{
+        id: 'proj1', name: 'My Tasks', mode: 'scrum',
+        todo: [], doing: [], done: [], backlog: [], activeSprint: null,
+        sprints
+      }],
+      activeProjectId: 'proj1'
+    };
+    localStorage.setItem('kanban-personal-board-v1', JSON.stringify(state));
+  });
+  await page.reload();
+  await page.evaluate(() => {
+    const backdrop = document.getElementById('save-warning-backdrop');
+    if (backdrop) backdrop.style.display = 'none';
+  });
+
+  let lastDialogMessage = '';
+  page.on('dialog', (d) => { lastDialogMessage = d.message(); d.accept(); });
+
+  // --- Reopen Sprint A: succeeds since nothing is currently active ---
+  await page.locator('#project-toolbar button', { hasText: 'past sprint' }).click();
+  await page.locator('.sprint-history-row', { hasText: 'Sprint A' }).click();
+  await page.locator('#sprint-detail-modal-actions button', { hasText: 'Reopen Sprint' }).click();
+
+  await expect(page.locator('#sprint-detail-modal-backdrop')).toBeHidden();
+  await expect(page.locator('#sprint-history-modal-backdrop')).toBeHidden();
+  await expect(page.locator('.sprint-info-name')).toHaveText('Sprint A');
+  await expect(page.locator('[data-count="done"]')).toHaveText('2');
+
+  const reopened = await page.evaluate(() => {
+    const p = activeProject();
+    return {
+      activeSprintId: p.activeSprint && p.activeSprint.id,
+      hasCompletedAt: p.activeSprint && ('completedAt' in p.activeSprint),
+      sprintsCount: p.sprints.length
+    };
+  });
+  expect(reopened.activeSprintId).toBe('sprint-a');
+  expect(reopened.hasCompletedAt).toBe(false); // matches a freshly-started sprint's shape
+  expect(reopened.sprintsCount).toBe(2); // A moved out of history, leaving B and C
+
+  // --- Reopen Sprint B: blocked because Sprint A is now active ---
+  await page.locator('#project-toolbar button', { hasText: 'past sprint' }).click();
+  await page.locator('.sprint-history-row', { hasText: 'Sprint B' }).click();
+  await page.locator('#sprint-detail-modal-actions button', { hasText: 'Reopen Sprint' }).click();
+  expect(lastDialogMessage).toContain('Sprint A'); // explains *why*, naming the blocker
+
+  const stillBlocked = await page.evaluate(() => {
+    const p = activeProject();
+    return { activeSprintId: p.activeSprint.id, sprintsCount: p.sprints.length };
+  });
+  expect(stillBlocked.activeSprintId).toBe('sprint-a'); // unchanged
+  expect(stillBlocked.sprintsCount).toBe(2); // Sprint B is still archived, nothing silently swapped
+
+  // --- Delete Sprint B (detail modal for it is still open), keeping its task in the Backlog ---
+  await page.locator('.sprint-detail-delete-menu > button').click(); // opens the drop-up menu
+  await expect(page.locator('.sprint-detail-delete-dropdown')).toHaveClass(/open/);
+  // clicking elsewhere closes it without triggering either delete option
+  await page.locator('#sprint-detail-modal-title').click();
+  await expect(page.locator('.sprint-detail-delete-dropdown')).not.toHaveClass(/open/);
+  expect(await page.evaluate(() => activeProject().sprints.length)).toBe(2); // nothing deleted yet
+
+  await page.locator('.sprint-detail-delete-menu > button').click();
+  await page.locator('.sprint-detail-delete-dropdown button', { hasText: 'Delete (Keep Tasks)' }).click();
+  await expect(page.locator('#sprint-detail-modal-backdrop')).toBeHidden();
+  await expect(page.locator('#sprint-history-modal-backdrop')).toBeVisible(); // list stays open, just refreshed
+  await expect(page.locator('.sprint-history-row')).toHaveCount(1); // only Sprint C left
+
+  const afterKeepDelete = await page.evaluate(() => {
+    const p = activeProject();
+    const backlogItem = p.backlog.find(i => i.text === 'Sprint B task');
+    return {
+      sprintsCount: p.sprints.length,
+      backlogHasTask: !!backlogItem,
+      backlogTaskCompletedAt: backlogItem ? backlogItem.completedAt : undefined
+    };
+  });
+  expect(afterKeepDelete.sprintsCount).toBe(1);
+  expect(afterKeepDelete.backlogHasTask).toBe(true);
+  expect(afterKeepDelete.backlogTaskCompletedAt).toBeNull(); // cleared, not carried into a future sprint
+
+  // --- Delete Sprint C, removing its task entirely ---
+  await page.locator('.sprint-history-row', { hasText: 'Sprint C' }).click();
+  await page.locator('.sprint-detail-delete-menu > button').click();
+  await page.locator('.sprint-detail-delete-dropdown button', { hasText: 'Delete (Remove Tasks)' }).click();
+  await expect(page.locator('#sprint-history-modal-body .sprint-history-detail-empty')).toHaveText('No past sprints.');
+
+  const afterWipeDelete = await page.evaluate(() => {
+    const p = activeProject();
+    return {
+      sprintsCount: p.sprints.length,
+      backlogHasTask: p.backlog.some(i => i.text === 'Sprint C task')
+    };
+  });
+  expect(afterWipeDelete.sprintsCount).toBe(0);
+  expect(afterWipeDelete.backlogHasTask).toBe(false); // gone, not returned anywhere
+
+  expect(errors, 'no console/page errors across reopen/blocked-reopen/delete flows').toEqual([]);
+});
