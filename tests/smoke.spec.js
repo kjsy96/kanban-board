@@ -333,6 +333,94 @@ test('burndown chart derives from completion dates: leaving Done un-completes an
   expect(errors, 'no console/page errors across the burndown/completion-date flow').toEqual([]);
 });
 
+test('a pre-pool-separation archived sprint (completedItems, no nested arrays) migrates safely, its history is viewable, and starting a new sprint afterward still populates To do', async ({ page }) => {
+  const errors = [];
+
+  await page.goto(APP_URL);
+  await page.evaluate(() => {
+    // Exact original-v1.4 archived-sprint shape: Object.assign({}, activeSprint,
+    // { completedAt, completedItems }) -- no todo/doing/review/done nested on
+    // the sprint at all (those lived on the project directly back then).
+    const oldShapeState = {
+      projects: [{
+        id: 'proj1', name: 'Legacy Project', mode: 'scrum',
+        todo: [], doing: [], done: [],
+        backlog: [],
+        activeSprint: null,
+        sprints: [{
+          id: 'old-sprint-1', name: 'Sprint 1', goal: 'The original goal',
+          startDate: '2026-01-01', endDate: '2026-01-14',
+          unit: 'count', startingTotal: 2, burnHistory: [{ date: '2026-01-10', remaining: 1 }],
+          completedAt: Date.now(),
+          completedItems: [
+            { id: 'old1', text: 'Old finished task one', created: Date.now(), deadline: null, points: null },
+            { id: 'old2', text: 'Old finished task two', created: Date.now(), deadline: null, points: null }
+          ]
+        }]
+      }],
+      activeProjectId: 'proj1'
+    };
+    localStorage.setItem('kanban-personal-board-v1', JSON.stringify(oldShapeState));
+  });
+  await page.reload();
+  page.on('pageerror', (err) => errors.push(err.message));
+  page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()); });
+  await page.evaluate(() => {
+    const backdrop = document.getElementById('save-warning-backdrop');
+    if (backdrop) backdrop.style.display = 'none';
+  });
+
+  // Migration should have moved completedItems -> done, backfilled dates,
+  // and given the sprint empty (but present) todo/doing/review arrays.
+  const migrated = await page.evaluate(() => {
+    const s = activeProject().sprints[0];
+    return {
+      hasCompletedItems: 'completedItems' in s,
+      doneLen: s.done.length,
+      doneCompletedAt: s.done[0].completedAt,
+      todoIsArray: Array.isArray(s.todo)
+    };
+  });
+  expect(migrated.hasCompletedItems).toBe(false);
+  expect(migrated.doneLen).toBe(2);
+  expect(migrated.doneCompletedAt).toBeTruthy();
+  expect(migrated.todoIsArray).toBe(true);
+
+  // Expanding the stack, then the row, then its detail must not throw or
+  // make the whole past-sprints section disappear (the original bug: an
+  // unhandled exception reading `s.done` on the old shape aborted
+  // renderProjectToolbar() partway through, before it could re-append
+  // anything past that point).
+  await page.locator('.sprint-history-stack').click();
+  await expect(page.locator('.sprint-history-row')).toBeVisible();
+  await page.locator('.sprint-history-row').click();
+  await expect(page.locator('.sprint-history-detail-item')).toHaveCount(2);
+  await expect(page.locator('.sprint-history-detail-item').first()).toContainText('Old finished task');
+  await expect(page.locator('.sprint-history-detail-date').first()).not.toBeEmpty();
+  await expect(page.locator('.sprint-history-row')).toBeVisible(); // section is still there, not vanished
+
+  // Starting a brand-new sprint afterward must still populate To do -- this
+  // reproduces the full reported bug chain: exploring old sprint history
+  // first (which leaves the ephemeral expanded-state pointing at the
+  // now-expanded old sprint), then starting a new sprint. Before the fix,
+  // every render from this point on re-threw inside renderProjectToolbar(),
+  // which meant renderBoard() never ran and the new sprint's tasks never
+  // visually appeared in To do even though they were correctly in the data.
+  const backlogInput = page.locator('.add-input[data-col="backlog"]');
+  await backlogInput.fill('Brand new task');
+  await backlogInput.press('Enter');
+  await page.locator('#project-toolbar button', { hasText: 'Start Sprint' }).click();
+  await page.locator('#sprint-name-input').fill('Sprint 2');
+  await page.locator('#sprint-start-input').fill('2026-08-24');
+  await page.locator('#sprint-end-input').fill('2026-09-07');
+  await page.locator('#sprint-modal-checklist .checklist-row', { hasText: 'Brand new task' }).locator('input[type="checkbox"]').check();
+  await page.locator('#sprint-modal-submit').click();
+  await expect(page.locator('[data-count="todo"]')).toHaveText('1');
+  await expect(page.locator('#dropzone-todo .card')).toContainText('Brand new task');
+
+  expect(errors, 'no console/page errors migrating/viewing an old-shaped archived sprint').toEqual([]);
+});
+
 test('v1.4-shaped scrum project with an in-progress sprint migrates without data loss', async ({ page }) => {
   const errors = [];
 
