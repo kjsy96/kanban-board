@@ -1,5 +1,4 @@
-  let expandedSprintHistory = new Set();
-  let expandedSprintDetail = new Set(); // keyed by sprint.id, unique across the app
+  let expandedSprintDetail = new Set(); // keyed by sprint.id, unique across the app; cleared when the history modal closes
 
   function renderProjectToolbar() {
     const proj = activeProject();
@@ -78,68 +77,74 @@
     }
 
     if (proj.sprints.length) {
-      if (!expandedSprintHistory.has(proj.id)) {
-        const stack = document.createElement('div');
-        stack.className = 'done-stack sprint-history-stack';
-        stack.textContent = proj.sprints.length + ' past sprint' + (proj.sprints.length === 1 ? '' : 's');
-        stack.addEventListener('click', () => {
-          expandedSprintHistory.add(proj.id);
-          renderProjectToolbar();
-        });
-        toolbar.appendChild(stack);
-      } else {
-        const list = document.createElement('div');
-        list.className = 'sprint-history-list';
-        proj.sprints.slice().reverse().forEach(s => {
-          const row = document.createElement('div');
-          row.className = 'sprint-history-row';
-          row.textContent = s.name + ' (' + formatDeadline(s.startDate) + '–' + formatDeadline(s.endDate) + ')' + (s.goal ? ' — ' + s.goal : '');
-          row.addEventListener('click', () => {
-            if (expandedSprintDetail.has(s.id)) expandedSprintDetail.delete(s.id);
-            else expandedSprintDetail.add(s.id);
-            renderProjectToolbar();
-          });
-          list.appendChild(row);
-
-          if (expandedSprintDetail.has(s.id)) {
-            const detail = document.createElement('div');
-            detail.className = 'sprint-history-detail';
-            if (!s.done.length) {
-              const empty = document.createElement('div');
-              empty.className = 'sprint-history-detail-empty';
-              empty.textContent = 'Nothing was completed in this sprint.';
-              detail.appendChild(empty);
-            } else {
-              s.done.forEach(item => {
-                const line = document.createElement('div');
-                line.className = 'sprint-history-detail-item';
-                const textSpan = document.createElement('span');
-                textSpan.textContent = item.text.split('\n')[0].slice(0, 100);
-                line.appendChild(textSpan);
-                if (item.completedAt) {
-                  const dateSpan = document.createElement('span');
-                  dateSpan.className = 'sprint-history-detail-date';
-                  dateSpan.textContent = formatDeadline(item.completedAt);
-                  line.appendChild(dateSpan);
-                }
-                detail.appendChild(line);
-              });
-            }
-            list.appendChild(detail);
-          }
-        });
-        const collapseBtn = document.createElement('button');
-        collapseBtn.className = 'done-stack-collapse';
-        collapseBtn.textContent = 'Show less';
-        collapseBtn.addEventListener('click', () => {
-          expandedSprintHistory.delete(proj.id);
-          renderProjectToolbar();
-        });
-        list.appendChild(collapseBtn);
-        toolbar.appendChild(list);
-      }
+      const historyBtn = document.createElement('button');
+      historyBtn.className = 'save-status-btn';
+      historyBtn.textContent = proj.sprints.length + ' past sprint' + (proj.sprints.length === 1 ? '' : 's');
+      historyBtn.addEventListener('click', () => openSprintHistoryModal(proj));
+      toolbar.appendChild(historyBtn);
     }
   }
+
+  // Past sprints render in a modal rather than inline in the toolbar --
+  // inline worked fine for one or two, but every sprint ever completed
+  // would otherwise permanently push the board further down the page.
+  function renderSprintHistoryModalBody(proj) {
+    const body = document.getElementById('sprint-history-modal-body');
+    body.innerHTML = '';
+    proj.sprints.slice().reverse().forEach(s => {
+      const row = document.createElement('div');
+      row.className = 'sprint-history-row';
+      row.textContent = s.name + ' (' + formatDeadline(s.startDate) + '–' + formatDeadline(s.endDate) + ')' + (s.goal ? ' — ' + s.goal : '');
+      row.addEventListener('click', () => {
+        if (expandedSprintDetail.has(s.id)) expandedSprintDetail.delete(s.id);
+        else expandedSprintDetail.add(s.id);
+        renderSprintHistoryModalBody(proj);
+      });
+      body.appendChild(row);
+
+      if (expandedSprintDetail.has(s.id)) {
+        const detail = document.createElement('div');
+        detail.className = 'sprint-history-detail';
+        if (!s.done.length) {
+          const empty = document.createElement('div');
+          empty.className = 'sprint-history-detail-empty';
+          empty.textContent = 'Nothing was completed in this sprint.';
+          detail.appendChild(empty);
+        } else {
+          s.done.forEach(item => {
+            const line = document.createElement('div');
+            line.className = 'sprint-history-detail-item';
+            const textSpan = document.createElement('span');
+            textSpan.textContent = item.text.split('\n')[0].slice(0, 100);
+            line.appendChild(textSpan);
+            if (item.completedAt) {
+              const dateSpan = document.createElement('span');
+              dateSpan.className = 'sprint-history-detail-date';
+              dateSpan.textContent = formatDeadline(item.completedAt);
+              line.appendChild(dateSpan);
+            }
+            detail.appendChild(line);
+          });
+        }
+        body.appendChild(detail);
+      }
+    });
+  }
+
+  function openSprintHistoryModal(proj) {
+    renderSprintHistoryModalBody(proj);
+    document.getElementById('sprint-history-modal-backdrop').style.display = 'flex';
+  }
+
+  function closeSprintHistoryModal() {
+    document.getElementById('sprint-history-modal-backdrop').style.display = 'none';
+    expandedSprintDetail.clear(); // fresh, fully-collapsed list next time it opens
+  }
+
+  document.getElementById('sprint-history-modal-close').addEventListener('click', closeSprintHistoryModal);
+  document.getElementById('sprint-history-modal-backdrop').addEventListener('click', (e) => {
+    if (e.target.id === 'sprint-history-modal-backdrop') closeSprintHistoryModal();
+  });
 
   // Kanban and Scrum are separate, simultaneously-persistent pools (see
   // sendToOtherPool in workhorse-render.js for how a task actually crosses
@@ -312,7 +317,10 @@
     if (e.target.id === 'sprint-modal-backdrop') closeStartSprintModal();
   });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeStartSprintModal();
+    if (e.key === 'Escape') {
+      closeStartSprintModal();
+      closeSprintHistoryModal();
+    }
   });
 
   function dateToDayNum(dateStr) {

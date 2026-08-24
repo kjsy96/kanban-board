@@ -151,8 +151,11 @@ test('starting and completing a sprint moves items and records history', async (
   await expect(page.locator('[data-count="review"]')).toHaveText('0');
   await expect(page.locator('[data-count="backlog"]')).toHaveText('2'); // unfinished task returned
 
-  await page.locator('.sprint-history-stack').click();
+  await page.locator('#project-toolbar button', { hasText: 'past sprint' }).click();
+  await expect(page.locator('#sprint-history-modal-backdrop')).toBeVisible();
   await expect(page.locator('.sprint-history-row')).toContainText('Sprint 1');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#sprint-history-modal-backdrop')).toBeHidden();
 
   // reload and confirm the sprint history and view both persisted (localStorage)
   await page.reload();
@@ -386,18 +389,20 @@ test('a pre-pool-separation archived sprint (completedItems, no nested arrays) m
   expect(migrated.doneCompletedAt).toBeTruthy();
   expect(migrated.todoIsArray).toBe(true);
 
-  // Expanding the stack, then the row, then its detail must not throw or
-  // make the whole past-sprints section disappear (the original bug: an
-  // unhandled exception reading `s.done` on the old shape aborted
-  // renderProjectToolbar() partway through, before it could re-append
-  // anything past that point).
-  await page.locator('.sprint-history-stack').click();
+  // Opening the history modal, then expanding a row's detail, must not
+  // throw -- exercises the completedItems -> done migration fix directly
+  // (the original bug: an unhandled exception reading `s.done` on the old
+  // shape aborted renderProjectToolbar() partway through, wiping the whole
+  // toolbar since it has no try/catch).
+  await page.locator('#project-toolbar button', { hasText: 'past sprint' }).click();
+  await expect(page.locator('#sprint-history-modal-backdrop')).toBeVisible();
   await expect(page.locator('.sprint-history-row')).toBeVisible();
   await page.locator('.sprint-history-row').click();
   await expect(page.locator('.sprint-history-detail-item')).toHaveCount(2);
   await expect(page.locator('.sprint-history-detail-item').first()).toContainText('Old finished task');
   await expect(page.locator('.sprint-history-detail-date').first()).not.toBeEmpty();
-  await expect(page.locator('.sprint-history-row')).toBeVisible(); // section is still there, not vanished
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#sprint-history-modal-backdrop')).toBeHidden();
 
   // Starting a brand-new sprint afterward must still populate To do -- this
   // reproduces the full reported bug chain: exploring old sprint history
@@ -547,7 +552,7 @@ test('sprint can be edited, deleted (returning even Done tasks to Backlog), and 
   await page.locator('#project-toolbar button', { hasText: 'Delete Sprint' }).click();
   await expect(page.locator('#project-toolbar button', { hasText: 'Start Sprint' })).toBeVisible();
   await expect(page.locator('[data-count="backlog"]')).toHaveText('1'); // the Done task came back too
-  await expect(page.locator('.sprint-history-stack')).toHaveCount(0); // deleted, not archived
+  await expect(page.locator('#project-toolbar button', { hasText: 'past sprint' })).toHaveCount(0); // deleted, not archived
 
   // The returned task's completedAt must be cleared, not carried along --
   // otherwise a future sprint that later picks it back up from Backlog
@@ -569,7 +574,7 @@ test('sprint can be edited, deleted (returning even Done tasks to Backlog), and 
   await page.locator('#dropzone-backlog .card', { hasText: 'Second sprint task' }).dragTo(page.locator('#dropzone-done'));
   await page.locator('#project-toolbar button', { hasText: 'Complete Sprint' }).click();
 
-  await page.locator('.sprint-history-stack').click();
+  await page.locator('#project-toolbar button', { hasText: 'past sprint' }).click();
   await expect(page.locator('.sprint-history-row')).toHaveCount(2);
   const sprintBRow = page.locator('.sprint-history-row', { hasText: 'Sprint B' });
   await sprintBRow.click();
