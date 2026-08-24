@@ -365,6 +365,19 @@
     margin: 0;
   }
 
+  .sprint-detail-modal-backdrop {
+    /* Layered on top of the list modal (z-index 1000), not a replacement
+       for it -- closing this one reveals the list still open beneath. */
+    z-index: 1010;
+  }
+
+  .sprint-detail-modal-meta {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-soft);
+    margin-top: 4px;
+  }
+
   .sprint-history-modal-close {
     background: none;
     border: none;

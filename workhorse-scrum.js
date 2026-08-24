@@ -1,5 +1,3 @@
-  let expandedSprintDetail = new Set(); // keyed by sprint.id, unique across the app; cleared when the history modal closes
-
   function renderProjectToolbar() {
     const proj = activeProject();
     const toolbar = document.getElementById('project-toolbar');
@@ -88,6 +86,9 @@
   // Past sprints render in a modal rather than inline in the toolbar --
   // inline worked fine for one or two, but every sprint ever completed
   // would otherwise permanently push the board further down the page.
+  // Selecting a row isolates that one sprint in a second modal on top of
+  // this one, rather than expanding inline, so a long history list stays
+  // scannable instead of growing a detail block per row you've looked at.
   function renderSprintHistoryModalBody(proj) {
     const body = document.getElementById('sprint-history-modal-body');
     body.innerHTML = '';
@@ -95,39 +96,8 @@
       const row = document.createElement('div');
       row.className = 'sprint-history-row';
       row.textContent = s.name + ' (' + formatDeadline(s.startDate) + '–' + formatDeadline(s.endDate) + ')' + (s.goal ? ' — ' + s.goal : '');
-      row.addEventListener('click', () => {
-        if (expandedSprintDetail.has(s.id)) expandedSprintDetail.delete(s.id);
-        else expandedSprintDetail.add(s.id);
-        renderSprintHistoryModalBody(proj);
-      });
+      row.addEventListener('click', () => openSprintDetailModal(s));
       body.appendChild(row);
-
-      if (expandedSprintDetail.has(s.id)) {
-        const detail = document.createElement('div');
-        detail.className = 'sprint-history-detail';
-        if (!s.done.length) {
-          const empty = document.createElement('div');
-          empty.className = 'sprint-history-detail-empty';
-          empty.textContent = 'Nothing was completed in this sprint.';
-          detail.appendChild(empty);
-        } else {
-          s.done.forEach(item => {
-            const line = document.createElement('div');
-            line.className = 'sprint-history-detail-item';
-            const textSpan = document.createElement('span');
-            textSpan.textContent = item.text.split('\n')[0].slice(0, 100);
-            line.appendChild(textSpan);
-            if (item.completedAt) {
-              const dateSpan = document.createElement('span');
-              dateSpan.className = 'sprint-history-detail-date';
-              dateSpan.textContent = formatDeadline(item.completedAt);
-              line.appendChild(dateSpan);
-            }
-            detail.appendChild(line);
-          });
-        }
-        body.appendChild(detail);
-      }
     });
   }
 
@@ -138,12 +108,56 @@
 
   function closeSprintHistoryModal() {
     document.getElementById('sprint-history-modal-backdrop').style.display = 'none';
-    expandedSprintDetail.clear(); // fresh, fully-collapsed list next time it opens
+    closeSprintDetailModal(); // defensive -- shouldn't be reachable while open, but never leave it orphaned
   }
 
   document.getElementById('sprint-history-modal-close').addEventListener('click', closeSprintHistoryModal);
   document.getElementById('sprint-history-modal-backdrop').addEventListener('click', (e) => {
     if (e.target.id === 'sprint-history-modal-backdrop') closeSprintHistoryModal();
+  });
+
+  // One isolated sprint's full detail -- opened from a row in the list
+  // modal above, layered on top of it (higher z-index backdrop) rather than
+  // replacing it, so closing this one returns to the list still open.
+  function openSprintDetailModal(sprint) {
+    document.getElementById('sprint-detail-modal-title').textContent = sprint.name;
+    document.getElementById('sprint-detail-modal-meta').textContent =
+      formatDeadline(sprint.startDate) + '–' + formatDeadline(sprint.endDate) + (sprint.goal ? ' — ' + sprint.goal : '');
+
+    const body = document.getElementById('sprint-detail-modal-body');
+    body.innerHTML = '';
+    if (!sprint.done.length) {
+      const empty = document.createElement('div');
+      empty.className = 'sprint-history-detail-empty';
+      empty.textContent = 'Nothing was completed in this sprint.';
+      body.appendChild(empty);
+    } else {
+      sprint.done.forEach(item => {
+        const line = document.createElement('div');
+        line.className = 'sprint-history-detail-item';
+        const textSpan = document.createElement('span');
+        textSpan.textContent = item.text.split('\n')[0].slice(0, 100);
+        line.appendChild(textSpan);
+        if (item.completedAt) {
+          const dateSpan = document.createElement('span');
+          dateSpan.className = 'sprint-history-detail-date';
+          dateSpan.textContent = formatDeadline(item.completedAt);
+          line.appendChild(dateSpan);
+        }
+        body.appendChild(line);
+      });
+    }
+
+    document.getElementById('sprint-detail-modal-backdrop').style.display = 'flex';
+  }
+
+  function closeSprintDetailModal() {
+    document.getElementById('sprint-detail-modal-backdrop').style.display = 'none';
+  }
+
+  document.getElementById('sprint-detail-modal-close').addEventListener('click', closeSprintDetailModal);
+  document.getElementById('sprint-detail-modal-backdrop').addEventListener('click', (e) => {
+    if (e.target.id === 'sprint-detail-modal-backdrop') closeSprintDetailModal();
   });
 
   // Kanban and Scrum are separate, simultaneously-persistent pools (see
@@ -317,9 +331,15 @@
     if (e.target.id === 'sprint-modal-backdrop') closeStartSprintModal();
   });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      closeStartSprintModal();
+    if (e.key !== 'Escape') return;
+    // Close one layer at a time -- with the detail modal stacked on top of
+    // the list modal, Escape should back out a step, not drop both at once.
+    if (document.getElementById('sprint-detail-modal-backdrop').style.display === 'flex') {
+      closeSprintDetailModal();
+    } else if (document.getElementById('sprint-history-modal-backdrop').style.display === 'flex') {
       closeSprintHistoryModal();
+    } else {
+      closeStartSprintModal();
     }
   });
 
