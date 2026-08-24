@@ -94,6 +94,33 @@
           if (!item.completedAt) item.completedAt = todayDateStr();
         });
       }
+
+      // Pre-pool-separation (original v1.4) archived sprints stored their
+      // finished items in `completedItems`, and had no nested todo/doing/
+      // review at all (those lived on the project directly, not the sprint,
+      // at the time a sprint was archived). The sprint-history detail view
+      // reads `done` unconditionally -- without this, expanding an old
+      // archived sprint throws mid-render, which (since renderProjectToolbar
+      // has no try/catch) skips the rest of that render pass entirely,
+      // including renderBoard() -- so this single gap was the real cause
+      // behind "past sprint disappears on click" AND "a freshly-started
+      // sprint's tasks don't appear in To do" (the latter only once the
+      // ephemeral expanded-state was left pointing at the broken sprint from
+      // an earlier click in the same session).
+      if (Array.isArray(p.sprints)) {
+        p.sprints.forEach(s => {
+          if (!Array.isArray(s.done)) {
+            s.done = Array.isArray(s.completedItems) ? s.completedItems : [];
+            delete s.completedItems;
+          }
+          if (!Array.isArray(s.todo)) s.todo = [];
+          if (!Array.isArray(s.doing)) s.doing = [];
+          if (!Array.isArray(s.review)) s.review = [];
+          s.done.forEach(item => {
+            if (!item.completedAt) item.completedAt = todayDateStr();
+          });
+        });
+      }
     });
     if (!parsed.activeProjectId || !parsed.projects.some(p => p.id === parsed.activeProjectId)) {
       parsed.activeProjectId = parsed.projects[0].id;

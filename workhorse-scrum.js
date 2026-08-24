@@ -113,7 +113,15 @@
               s.done.forEach(item => {
                 const line = document.createElement('div');
                 line.className = 'sprint-history-detail-item';
-                line.textContent = item.text.split('\n')[0].slice(0, 100);
+                const textSpan = document.createElement('span');
+                textSpan.textContent = item.text.split('\n')[0].slice(0, 100);
+                line.appendChild(textSpan);
+                if (item.completedAt) {
+                  const dateSpan = document.createElement('span');
+                  dateSpan.className = 'sprint-history-detail-date';
+                  dateSpan.textContent = formatDeadline(item.completedAt);
+                  line.appendChild(dateSpan);
+                }
                 detail.appendChild(line);
               });
             }
