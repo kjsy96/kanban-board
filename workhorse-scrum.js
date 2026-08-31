@@ -4,6 +4,7 @@
     toolbar.innerHTML = '';
 
     document.getElementById('board').classList.toggle('mode-scrum', proj.mode === 'scrum');
+    document.body.classList.toggle('mode-scrum', proj.mode === 'scrum');
 
     const toggleWrap = document.createElement('div');
     toggleWrap.className = 'view-toggle';
