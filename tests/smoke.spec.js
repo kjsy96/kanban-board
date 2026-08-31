@@ -729,6 +729,299 @@ test('past sprints can be reopened (blocked when one is already active) or delet
   expect(errors, 'no console/page errors across reopen/blocked-reopen/delete flows').toEqual([]);
 });
 
+test('sprint date displays show the year only when it differs from the current year', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (err) => errors.push(err.message));
+  page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()); });
+
+  await page.goto(APP_URL);
+  await page.evaluate(() => {
+    const backdrop = document.getElementById('save-warning-backdrop');
+    if (backdrop) backdrop.style.display = 'none';
+  });
+  await page.locator('.view-toggle-option', { hasText: 'Scrum' }).click();
+
+  // Spans a year boundary but stays well under the long-span warning
+  // threshold, so no confirm() dialog is involved here.
+  await page.locator('#project-toolbar button', { hasText: 'Start Sprint' }).click();
+  await page.locator('#sprint-name-input').fill('Year Boundary Sprint');
+  await page.locator('#sprint-start-input').fill('2025-12-28');
+  await page.locator('#sprint-end-input').fill('2026-01-04');
+  await page.locator('#sprint-modal-submit').click();
+
+  // Current year (2026, per the fixed system clock this app runs under in
+  // this repo's dev/test environment) stays year-less; the off-year start
+  // date shows its year so a typo like this can't hide in the UI again.
+  await expect(page.locator('.sprint-info-dates')).toHaveText('Dec 28, 2025–Jan 4');
+
+  expect(errors, 'no console/page errors checking sprint date year display').toEqual([]);
+});
+
+test('starting or editing a sprint with an implausibly long date range warns before proceeding', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (err) => errors.push(err.message));
+  page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()); });
+
+  await page.goto(APP_URL);
+  await page.evaluate(() => {
+    const backdrop = document.getElementById('save-warning-backdrop');
+    if (backdrop) backdrop.style.display = 'none';
+  });
+  await page.locator('.view-toggle-option', { hasText: 'Scrum' }).click();
+
+  await page.locator('#project-toolbar button', { hasText: 'Start Sprint' }).click();
+  await page.locator('#sprint-name-input').fill('Way Too Long Sprint');
+  await page.locator('#sprint-start-input').fill('2026-01-01');
+  await page.locator('#sprint-end-input').fill('2026-06-01'); // 151 days
+
+  // Dismissing the warning leaves the modal open and nothing gets created.
+  let dialogMessage = '';
+  page.once('dialog', (d) => { dialogMessage = d.message(); d.dismiss(); });
+  await page.locator('#sprint-modal-submit').click();
+  expect(dialogMessage).toContain('151 days');
+  await expect(page.locator('#sprint-modal-backdrop')).toBeVisible();
+  await expect(page.locator('#project-toolbar button', { hasText: 'Start Sprint' })).toBeVisible();
+
+  // Accepting it proceeds as normal.
+  page.once('dialog', (d) => d.accept());
+  await page.locator('#sprint-modal-submit').click();
+  await expect(page.locator('#sprint-modal-backdrop')).toBeHidden();
+  await expect(page.locator('.sprint-info-name')).toHaveText('Way Too Long Sprint');
+
+  // The same guard applies when editing an active sprint's dates, not just
+  // on initial creation.
+  await page.locator('#project-toolbar button', { hasText: 'Edit' }).click();
+  await page.locator('#sprint-end-input').fill('2027-01-01');
+  page.once('dialog', (d) => d.dismiss());
+  await page.locator('#sprint-modal-submit').click();
+  await expect(page.locator('#sprint-modal-backdrop')).toBeVisible();
+  await expect(page.locator('.sprint-info-name')).toHaveText('Way Too Long Sprint'); // unchanged so far
+  await page.locator('#sprint-modal-cancel').click();
+
+  expect(errors, 'no console/page errors around the long-sprint-span warning').toEqual([]);
+});
+
+test('a card\'s creation date can be edited from the kebab menu, and can\'t be cleared', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (err) => errors.push(err.message));
+  page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()); });
+
+  await page.goto(APP_URL);
+  await page.evaluate(() => {
+    const backdrop = document.getElementById('save-warning-backdrop');
+    if (backdrop) backdrop.style.display = 'none';
+  });
+
+  const input = page.locator('.add-input[data-col="todo"]');
+  await input.fill('Task for creation date test');
+  await input.press('Enter');
+
+  const card = page.locator('.card', { hasText: 'Task for creation date test' });
+  await card.hover();
+  await card.locator('.card-menu-btn').click();
+  const createdInput = card.locator('.card-menu-deadline-row', { hasText: 'Created on' }).locator('input[type="date"]');
+
+  const today = await page.evaluate(() => todayDateStr());
+  await expect(createdInput).toHaveValue(today); // freshly created -- defaults to today
+
+  await createdInput.fill('2026-01-05');
+  await createdInput.blur();
+  await expect(card.locator('.card-date')).toHaveText('Jan 5');
+
+  await page.locator('#undo-btn').click();
+  await expect(card.locator('.card-date')).not.toHaveText('Jan 5');
+  await page.locator('#redo-btn').click();
+  await expect(card.locator('.card-date')).toHaveText('Jan 5');
+
+  // Clearing the field (e.g. an accidental full-select-and-delete) must not
+  // leave the card with no creation date -- reverts to the last valid value.
+  await card.hover();
+  await card.locator('.card-menu-btn').click();
+  const createdInput2 = card.locator('.card-menu-deadline-row', { hasText: 'Created on' }).locator('input[type="date"]');
+  await createdInput2.fill('');
+  await createdInput2.blur();
+  await expect(createdInput2).toHaveValue('2026-01-05');
+  await expect(card.locator('.card-date')).toHaveText('Jan 5');
+
+  expect(errors, 'no console/page errors editing/clearing the creation date').toEqual([]);
+});
+
+test('Start Sprint\'s backlog checklist has a working Select all toggle', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (err) => errors.push(err.message));
+  page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()); });
+
+  await page.goto(APP_URL);
+  await page.evaluate(() => {
+    const backdrop = document.getElementById('save-warning-backdrop');
+    if (backdrop) backdrop.style.display = 'none';
+  });
+  await page.locator('.view-toggle-option', { hasText: 'Scrum' }).click();
+
+  // Empty backlog: no Select all control, just the existing empty-state message.
+  await page.locator('#project-toolbar button', { hasText: 'Start Sprint' }).click();
+  await expect(page.locator('#sprint-modal-select-all')).toBeHidden();
+  await expect(page.locator('.sprint-modal-empty')).toBeVisible();
+  await page.locator('#sprint-modal-cancel').click();
+
+  const backlogInput = page.locator('.add-input[data-col="backlog"]');
+  for (const text of ['Alpha task', 'Beta task', 'Gamma task']) {
+    await backlogInput.fill(text);
+    await backlogInput.press('Enter');
+  }
+
+  await page.locator('#project-toolbar button', { hasText: 'Start Sprint' }).click();
+  const checklist = page.locator('#sprint-modal-checklist');
+  const boxes = checklist.locator('input[type="checkbox"]');
+  const selectAllBtn = page.locator('#sprint-modal-select-all');
+  await expect(selectAllBtn).toBeVisible();
+  await expect(selectAllBtn).toHaveText('Select all');
+  for (const box of await boxes.all()) await expect(box).not.toBeChecked();
+
+  // Select all: every box checks, label flips to let it also act as "deselect all".
+  await selectAllBtn.click();
+  for (const box of await boxes.all()) await expect(box).toBeChecked();
+  await expect(selectAllBtn).toHaveText('Deselect all');
+
+  // Manually unchecking one afterward isn't fought by anything.
+  await checklist.locator('.checklist-row', { hasText: 'Beta task' }).locator('input[type="checkbox"]').uncheck();
+  await expect(checklist.locator('.checklist-row', { hasText: 'Beta task' }).locator('input[type="checkbox"]')).not.toBeChecked();
+
+  // Clicking again with a partial selection re-selects everything, including Beta.
+  await selectAllBtn.click();
+  for (const box of await boxes.all()) await expect(box).toBeChecked();
+  await expect(selectAllBtn).toHaveText('Deselect all');
+
+  // Clicking once more with everything checked deselects everything.
+  await selectAllBtn.click();
+  for (const box of await boxes.all()) await expect(box).not.toBeChecked();
+  await expect(selectAllBtn).toHaveText('Select all');
+
+  await page.locator('#sprint-modal-cancel').click();
+
+  expect(errors, 'no console/page errors exercising the Select all toggle').toEqual([]);
+});
+
+test('Kanban Done cards now track and show a completion date too, not just Scrum', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (err) => errors.push(err.message));
+  page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()); });
+
+  await page.goto(APP_URL);
+  await page.evaluate(() => {
+    const backdrop = document.getElementById('save-warning-backdrop');
+    if (backdrop) backdrop.style.display = 'none';
+  });
+
+  const input = page.locator('.add-input[data-col="todo"]');
+  await input.fill('Kanban done-date task');
+  await input.press('Enter');
+
+  const card = page.locator('.card', { hasText: 'Kanban done-date task' });
+  await expect(card.locator('.card-completed')).toBeHidden();
+
+  // Before reaching Done, the kebab menu has no "Completed on" row at all.
+  await card.hover();
+  await card.locator('.card-menu-btn').click();
+  await expect(card.locator('.card-menu-deadline-row', { hasText: 'Completed on' })).toBeHidden();
+  await page.keyboard.press('Escape');
+
+  const today = await page.evaluate(() => todayDateStr());
+  await page.locator('#dropzone-todo .card', { hasText: 'Kanban done-date task' }).dragTo(page.locator('#dropzone-done'));
+  await expect(card.locator('.card-completed')).toBeVisible();
+  let completedAt = await page.evaluate(() =>
+    activeProject().done.find(i => i.text === 'Kanban done-date task').completedAt);
+  expect(completedAt).toBe(today);
+
+  // Backdate it via the now-visible "Completed on" field; the footer badge follows.
+  await card.hover();
+  await card.locator('.card-menu-btn').click();
+  const completedInput = card.locator('.card-menu-deadline-row', { hasText: 'Completed on' }).locator('input[type="date"]');
+  await expect(completedInput).toBeVisible();
+  await completedInput.fill('2026-02-14');
+  await completedInput.blur();
+  await expect(card.locator('.card-completed')).toHaveText('done Feb 14');
+
+  // Leaving Done clears it, mirroring the existing Scrum behavior.
+  await page.keyboard.press('Escape');
+  await page.locator('#dropzone-done .card', { hasText: 'Kanban done-date task' }).dragTo(page.locator('#dropzone-todo'));
+  await expect(card.locator('.card-completed')).toBeHidden();
+  completedAt = await page.evaluate(() =>
+    activeProject().todo.find(i => i.text === 'Kanban done-date task').completedAt);
+  expect(completedAt).toBeNull();
+
+  expect(errors, 'no console/page errors around Kanban completion-date tracking').toEqual([]);
+});
+
+test('pre-issue-#32 Kanban Done items with no completedAt get backfilled on load', async ({ page }) => {
+  const errors = [];
+
+  await page.goto(APP_URL);
+  await page.evaluate(() => {
+    const state = {
+      projects: [{
+        id: 'proj1', name: 'Legacy Kanban Project', mode: 'kanban',
+        todo: [], doing: [],
+        done: [{ id: 'd1', text: 'Old finished kanban task', created: Date.now(), deadline: null, points: null }],
+        backlog: [], activeSprint: null, sprints: []
+      }],
+      activeProjectId: 'proj1'
+    };
+    localStorage.setItem('kanban-personal-board-v1', JSON.stringify(state));
+  });
+  await page.reload();
+  page.on('pageerror', (err) => errors.push(err.message));
+  page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()); });
+  await page.evaluate(() => {
+    const backdrop = document.getElementById('save-warning-backdrop');
+    if (backdrop) backdrop.style.display = 'none';
+  });
+
+  const today = await page.evaluate(() => todayDateStr());
+  const backfilled = await page.evaluate(() => activeProject().done[0].completedAt);
+  expect(backfilled).toBe(today);
+
+  const card = page.locator('.card', { hasText: 'Old finished kanban task' });
+  await expect(card.locator('.card-completed')).toBeVisible();
+
+  expect(errors, 'no console/page errors migrating a legacy Kanban Done item').toEqual([]);
+});
+
+test('Scrum mode widens the board (and stays aligned with the toolbar), Kanban keeps the narrower width', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (err) => errors.push(err.message));
+  page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()); });
+
+  await page.goto(APP_URL);
+  await page.evaluate(() => {
+    const backdrop = document.getElementById('save-warning-backdrop');
+    if (backdrop) backdrop.style.display = 'none';
+  });
+  await page.setViewportSize({ width: 1600, height: 900 }); // wide enough that both caps are actually reachable
+
+  async function maxWidthOf(selector) {
+    return page.evaluate((sel) => parseInt(getComputedStyle(document.querySelector(sel)).maxWidth, 10), selector);
+  }
+
+  const kanbanBoardWidth = await maxWidthOf('.board');
+  const kanbanToolbarWidth = await maxWidthOf('.project-toolbar');
+  expect(kanbanBoardWidth).toBe(1160);
+  expect(kanbanToolbarWidth).toBe(1160);
+
+  await page.locator('.view-toggle-option', { hasText: 'Scrum' }).click();
+  const scrumBoardWidth = await maxWidthOf('.board');
+  const scrumToolbarWidth = await maxWidthOf('.project-toolbar');
+  expect(scrumBoardWidth).toBeGreaterThan(kanbanBoardWidth);
+  expect(scrumToolbarWidth).toBe(scrumBoardWidth); // stays aligned with the board, not left behind at Kanban's width
+
+  // Switching back to Kanban reverts both.
+  await page.locator('.view-toggle-option', { hasText: 'Kanban' }).click();
+  expect(await maxWidthOf('.board')).toBe(1160);
+  expect(await maxWidthOf('.project-toolbar')).toBe(1160);
+
+  expect(errors, 'no console/page errors checking Scrum/Kanban board width').toEqual([]);
+});
+
 test('the "more detail" add-task modal creates a task with a title, description, deadline/points -- the description stays hidden until expanded', async ({ page }) => {
   const errors = [];
   page.on('pageerror', (err) => errors.push(err.message));

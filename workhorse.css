@@ -297,6 +297,33 @@
     flex: 1;
   }
 
+  .sprint-modal-checklist-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .sprint-modal-checklist-head .sprint-modal-label {
+    margin-bottom: 0;
+  }
+
+  .sprint-modal-select-all {
+    background: none;
+    border: none;
+    padding: 0;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-soft);
+    text-decoration: underline;
+    cursor: pointer;
+  }
+
+  .sprint-modal-select-all:hover {
+    color: var(--ink);
+  }
+
   .sprint-modal-checklist {
     max-height: 160px;
     overflow-y: auto;
@@ -725,6 +752,21 @@
     grid-template-columns: minmax(160px, 0.8fr) repeat(4, 1fr);
   }
 
+  /* Scrum splits the board 5 ways instead of Kanban's 3, so reusing
+     Kanban's 1160px cap left every column noticeably cramped for no real
+     reason. Widening it needs project-toolbar and burndown-container to
+     grow along with it, or they'd drift out of alignment with the board
+     edges below them (this project has hit that exact mismatch once
+     before) -- body.mode-scrum (toggled alongside #board's own
+     .mode-scrum class in renderProjectToolbar()) is the hook for all
+     three, since plain CSS can't select a *preceding* sibling based on a
+     later element's class. */
+  body.mode-scrum .project-toolbar,
+  body.mode-scrum .burndown-container,
+  body.mode-scrum .board {
+    max-width: 1440px;
+  }
+
   @media (max-width: 860px) {
     .board { grid-template-columns: 1fr; }
   }
@@ -1133,6 +1175,16 @@
     border: 1px solid var(--line);
     border-radius: 20px;
     padding: 2px 8px;
+  }
+
+  .card-completed {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    color: var(--done);
+    background: var(--done-bg);
+    border-radius: 20px;
+    padding: 2px 8px;
+    white-space: nowrap;
   }
 
   .card-list-view {
