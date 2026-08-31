@@ -729,6 +729,179 @@ test('past sprints can be reopened (blocked when one is already active) or delet
   expect(errors, 'no console/page errors across reopen/blocked-reopen/delete flows').toEqual([]);
 });
 
+test('sprint date displays show the year only when it differs from the current year', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (err) => errors.push(err.message));
+  page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()); });
+
+  await page.goto(APP_URL);
+  await page.evaluate(() => {
+    const backdrop = document.getElementById('save-warning-backdrop');
+    if (backdrop) backdrop.style.display = 'none';
+  });
+  await page.locator('.view-toggle-option', { hasText: 'Scrum' }).click();
+
+  // Spans a year boundary but stays well under the long-span warning
+  // threshold, so no confirm() dialog is involved here.
+  await page.locator('#project-toolbar button', { hasText: 'Start Sprint' }).click();
+  await page.locator('#sprint-name-input').fill('Year Boundary Sprint');
+  await page.locator('#sprint-start-input').fill('2025-12-28');
+  await page.locator('#sprint-end-input').fill('2026-01-04');
+  await page.locator('#sprint-modal-submit').click();
+
+  // Current year (2026, per the fixed system clock this app runs under in
+  // this repo's dev/test environment) stays year-less; the off-year start
+  // date shows its year so a typo like this can't hide in the UI again.
+  await expect(page.locator('.sprint-info-dates')).toHaveText('Dec 28, 2025–Jan 4');
+
+  expect(errors, 'no console/page errors checking sprint date year display').toEqual([]);
+});
+
+test('starting or editing a sprint with an implausibly long date range warns before proceeding', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (err) => errors.push(err.message));
+  page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()); });
+
+  await page.goto(APP_URL);
+  await page.evaluate(() => {
+    const backdrop = document.getElementById('save-warning-backdrop');
+    if (backdrop) backdrop.style.display = 'none';
+  });
+  await page.locator('.view-toggle-option', { hasText: 'Scrum' }).click();
+
+  await page.locator('#project-toolbar button', { hasText: 'Start Sprint' }).click();
+  await page.locator('#sprint-name-input').fill('Way Too Long Sprint');
+  await page.locator('#sprint-start-input').fill('2026-01-01');
+  await page.locator('#sprint-end-input').fill('2026-06-01'); // 151 days
+
+  // Dismissing the warning leaves the modal open and nothing gets created.
+  let dialogMessage = '';
+  page.once('dialog', (d) => { dialogMessage = d.message(); d.dismiss(); });
+  await page.locator('#sprint-modal-submit').click();
+  expect(dialogMessage).toContain('151 days');
+  await expect(page.locator('#sprint-modal-backdrop')).toBeVisible();
+  await expect(page.locator('#project-toolbar button', { hasText: 'Start Sprint' })).toBeVisible();
+
+  // Accepting it proceeds as normal.
+  page.once('dialog', (d) => d.accept());
+  await page.locator('#sprint-modal-submit').click();
+  await expect(page.locator('#sprint-modal-backdrop')).toBeHidden();
+  await expect(page.locator('.sprint-info-name')).toHaveText('Way Too Long Sprint');
+
+  // The same guard applies when editing an active sprint's dates, not just
+  // on initial creation.
+  await page.locator('#project-toolbar button', { hasText: 'Edit' }).click();
+  await page.locator('#sprint-end-input').fill('2027-01-01');
+  page.once('dialog', (d) => d.dismiss());
+  await page.locator('#sprint-modal-submit').click();
+  await expect(page.locator('#sprint-modal-backdrop')).toBeVisible();
+  await expect(page.locator('.sprint-info-name')).toHaveText('Way Too Long Sprint'); // unchanged so far
+  await page.locator('#sprint-modal-cancel').click();
+
+  expect(errors, 'no console/page errors around the long-sprint-span warning').toEqual([]);
+});
+
+test('a card\'s creation date can be edited from the kebab menu, and can\'t be cleared', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (err) => errors.push(err.message));
+  page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()); });
+
+  await page.goto(APP_URL);
+  await page.evaluate(() => {
+    const backdrop = document.getElementById('save-warning-backdrop');
+    if (backdrop) backdrop.style.display = 'none';
+  });
+
+  const input = page.locator('.add-input[data-col="todo"]');
+  await input.fill('Task for creation date test');
+  await input.press('Enter');
+
+  const card = page.locator('.card', { hasText: 'Task for creation date test' });
+  await card.hover();
+  await card.locator('.card-menu-btn').click();
+  const createdInput = card.locator('.card-menu-deadline-row', { hasText: 'Created on' }).locator('input[type="date"]');
+
+  const today = await page.evaluate(() => todayDateStr());
+  await expect(createdInput).toHaveValue(today); // freshly created -- defaults to today
+
+  await createdInput.fill('2026-01-05');
+  await createdInput.blur();
+  await expect(card.locator('.card-date')).toHaveText('Jan 5');
+
+  await page.locator('#undo-btn').click();
+  await expect(card.locator('.card-date')).not.toHaveText('Jan 5');
+  await page.locator('#redo-btn').click();
+  await expect(card.locator('.card-date')).toHaveText('Jan 5');
+
+  // Clearing the field (e.g. an accidental full-select-and-delete) must not
+  // leave the card with no creation date -- reverts to the last valid value.
+  await card.hover();
+  await card.locator('.card-menu-btn').click();
+  const createdInput2 = card.locator('.card-menu-deadline-row', { hasText: 'Created on' }).locator('input[type="date"]');
+  await createdInput2.fill('');
+  await createdInput2.blur();
+  await expect(createdInput2).toHaveValue('2026-01-05');
+  await expect(card.locator('.card-date')).toHaveText('Jan 5');
+
+  expect(errors, 'no console/page errors editing/clearing the creation date').toEqual([]);
+});
+
+test('Start Sprint\'s backlog checklist has a working Select all toggle', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (err) => errors.push(err.message));
+  page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()); });
+
+  await page.goto(APP_URL);
+  await page.evaluate(() => {
+    const backdrop = document.getElementById('save-warning-backdrop');
+    if (backdrop) backdrop.style.display = 'none';
+  });
+  await page.locator('.view-toggle-option', { hasText: 'Scrum' }).click();
+
+  // Empty backlog: no Select all control, just the existing empty-state message.
+  await page.locator('#project-toolbar button', { hasText: 'Start Sprint' }).click();
+  await expect(page.locator('#sprint-modal-select-all')).toBeHidden();
+  await expect(page.locator('.sprint-modal-empty')).toBeVisible();
+  await page.locator('#sprint-modal-cancel').click();
+
+  const backlogInput = page.locator('.add-input[data-col="backlog"]');
+  for (const text of ['Alpha task', 'Beta task', 'Gamma task']) {
+    await backlogInput.fill(text);
+    await backlogInput.press('Enter');
+  }
+
+  await page.locator('#project-toolbar button', { hasText: 'Start Sprint' }).click();
+  const checklist = page.locator('#sprint-modal-checklist');
+  const boxes = checklist.locator('input[type="checkbox"]');
+  const selectAllBtn = page.locator('#sprint-modal-select-all');
+  await expect(selectAllBtn).toBeVisible();
+  await expect(selectAllBtn).toHaveText('Select all');
+  for (const box of await boxes.all()) await expect(box).not.toBeChecked();
+
+  // Select all: every box checks, label flips to let it also act as "deselect all".
+  await selectAllBtn.click();
+  for (const box of await boxes.all()) await expect(box).toBeChecked();
+  await expect(selectAllBtn).toHaveText('Deselect all');
+
+  // Manually unchecking one afterward isn't fought by anything.
+  await checklist.locator('.checklist-row', { hasText: 'Beta task' }).locator('input[type="checkbox"]').uncheck();
+  await expect(checklist.locator('.checklist-row', { hasText: 'Beta task' }).locator('input[type="checkbox"]')).not.toBeChecked();
+
+  // Clicking again with a partial selection re-selects everything, including Beta.
+  await selectAllBtn.click();
+  for (const box of await boxes.all()) await expect(box).toBeChecked();
+  await expect(selectAllBtn).toHaveText('Deselect all');
+
+  // Clicking once more with everything checked deselects everything.
+  await selectAllBtn.click();
+  for (const box of await boxes.all()) await expect(box).not.toBeChecked();
+  await expect(selectAllBtn).toHaveText('Select all');
+
+  await page.locator('#sprint-modal-cancel').click();
+
+  expect(errors, 'no console/page errors exercising the Select all toggle').toEqual([]);
+});
+
 test('Kanban Done cards now track and show a completion date too, not just Scrum', async ({ page }) => {
   const errors = [];
   page.on('pageerror', (err) => errors.push(err.message));
