@@ -10,7 +10,7 @@
       "backlog": [
         {
           "id": "sprint-bl1",
-          "text": "Investigate why the CI cache never actually caches anything",
+          "text": "Fix the CI cache so it actually speeds up builds",
           "created": 1787414400000,
           "deadline": null,
           "points": 5,
@@ -18,7 +18,7 @@
         },
         {
           "id": "sprint-bl2",
-          "text": "Design the empty state nobody asked for but design insists on",
+          "text": "Design empty states for the dashboard",
           "created": 1787500800000,
           "deadline": null,
           "points": 2,
@@ -26,7 +26,7 @@
         },
         {
           "id": "sprint-bl3",
-          "text": "Have the \"do we really need microservices\" conversation again",
+          "text": "Decide, once and for all, if we're doing microservices",
           "created": 1787587200000,
           "deadline": null,
           "points": null,
@@ -37,7 +37,7 @@
         {
           "id": "sprint-13",
           "name": "Sprint 13",
-          "goal": "Stop the bleeding before it becomes a headline",
+          "goal": "Stabilize the platform ahead of the Q4 push",
           "startDate": "2026-08-07",
           "endDate": "2026-08-21",
           "unit": "points",
@@ -48,7 +48,7 @@
           "done": [
             {
               "id": "s13-d1",
-              "text": "Migrated the staging environment to the environment that actually works",
+              "text": "Migrate staging environment to new infrastructure",
               "created": 1786032000000,
               "deadline": null,
               "points": 5,
@@ -56,7 +56,7 @@
             },
             {
               "id": "s13-d2",
-              "text": "Fixed the login bug that only happened during demos",
+              "text": "Fix login bug affecting SSO users",
               "created": 1786118400000,
               "deadline": null,
               "points": 8,
@@ -64,7 +64,7 @@
             },
             {
               "id": "s13-d3",
-              "text": "Retired the spreadsheet that everyone secretly still uses",
+              "text": "Retire the reporting spreadsheet everyone still quietly uses",
               "created": 1786204800000,
               "deadline": null,
               "points": 3,
@@ -72,7 +72,7 @@
             },
             {
               "id": "s13-d4",
-              "text": "Rewrote the error messages so they no longer just say \"Error\"",
+              "text": "Rewrite unclear API error messages",
               "created": 1786291200000,
               "deadline": null,
               "points": 5,
@@ -80,7 +80,7 @@
             },
             {
               "id": "s13-d5",
-              "text": "Closed the ticket that was older than some team members' tenure",
+              "text": "Close out the backlog ticket open since last year",
               "created": 1786377600000,
               "deadline": null,
               "points": 3,
@@ -93,7 +93,7 @@
       "activeSprint": {
         "id": "sprint-14",
         "name": "Sprint 14",
-        "goal": "Ship the thing before the thing changes again",
+        "goal": "Ship the notification rework and clean up the API surface",
         "startDate": "2026-08-21",
         "endDate": "2026-09-04",
         "unit": "points",
@@ -101,7 +101,7 @@
         "todo": [
           {
             "id": "s14-t1",
-            "text": "Add rate limiting before the client's script hits us again",
+            "text": "Add rate limiting to the public API",
             "created": 1787241600000,
             "deadline": null,
             "points": 5,
@@ -109,7 +109,7 @@
           },
           {
             "id": "s14-t2",
-            "text": "Write the migration runbook nobody will read",
+            "text": "Write the migration runbook",
             "created": 1787241600000,
             "deadline": null,
             "points": 3,
@@ -119,7 +119,7 @@
         "doing": [
           {
             "id": "s14-do1",
-            "text": "Refactor the notification service (again)\n* Stop double-sending on retries\n* Actually respect the mute setting this time",
+            "text": "Refactor the notification service\n* Stop duplicate sends on retry\n* Fix the mute setting bug",
             "created": 1787241600000,
             "deadline": "2026-09-02",
             "points": 8,
@@ -127,7 +127,7 @@
           },
           {
             "id": "s14-do2",
-            "text": "Update Storybook so design stops asking",
+            "text": "Update Storybook components",
             "created": 1787328000000,
             "deadline": null,
             "points": 2,
@@ -137,7 +137,7 @@
         "review": [
           {
             "id": "s14-r1",
-            "text": "Pagination bug fix — waiting on QA to stop finding new ones",
+            "text": "Pagination bug fix — in QA",
             "created": 1787241600000,
             "deadline": null,
             "points": 3,
@@ -147,7 +147,7 @@
         "done": [
           {
             "id": "s14-d1",
-            "text": "Migrated auth service without anyone noticing (yet)",
+            "text": "Migrate auth service to the new provider",
             "created": 1787241600000,
             "deadline": null,
             "points": 5,
@@ -155,7 +155,7 @@
           },
           {
             "id": "s14-d2",
-            "text": "Fixed the flaky test that wasn't actually flaky, just correct",
+            "text": "Fix the flaky integration test",
             "created": 1787328000000,
             "deadline": null,
             "points": 3,
@@ -163,7 +163,7 @@
           },
           {
             "id": "s14-d3",
-            "text": "Rewrote the onboarding checklist copy for the third time\n[x] Get sign-off from PM\n[x] Get sign-off from the OTHER PM",
+            "text": "Rewrite onboarding checklist copy\n[x] Get sign-off from PM\n[x] Get sign-off from design",
             "created": 1787328000000,
             "deadline": null,
             "points": 2,
@@ -171,7 +171,7 @@
           },
           {
             "id": "s14-d4",
-            "text": "Killed the API endpoint nobody remembers adding",
+            "text": "Deprecate the unused /v1/legacy-export endpoint",
             "created": 1787414400000,
             "deadline": null,
             "points": 3,
@@ -204,13 +204,13 @@
         },
         {
           "id": "launch-t2",
-          "text": "Rewrite the risk register before it becomes historical fiction\n[] Identify top 5 risks\n[] Assign owners who will definitely not update it\n[] Schedule a review nobody will attend",
+          "text": "Update the risk register\n[] Identify top 5 risks\n[] Assign owners\n[] Schedule a review",
           "created": 1787328000000,
           "deadline": "2026-09-10"
         },
         {
           "id": "launch-t3",
-          "text": "Reply to the email thread that hit 47 replies since Tuesday",
+          "text": "Reply to the client email thread",
           "created": 1787587200000,
           "deadline": "2026-09-02"
         }
@@ -218,7 +218,7 @@
       "doing": [
         {
           "id": "launch-d1",
-          "text": "Draft Q4 roadmap slides\n* Pull metrics from last quarter\n* Get budget sign-off from Finance\n* Pretend the timeline is realistic",
+          "text": "Draft Q4 roadmap slides\n* Pull metrics from last quarter\n* Get budget sign-off from Finance\n* Confirm timeline with engineering",
           "created": 1787068800000,
           "deadline": "2026-09-15"
         },
@@ -230,7 +230,7 @@
         },
         {
           "id": "launch-d2",
-          "text": "Negotiate scope with the client who wants \"just one more feature\"",
+          "text": "Negotiate scope with the client",
           "created": 1787241600000,
           "deadline": null
         }
@@ -238,7 +238,7 @@
       "done": [
         {
           "id": "launch-done1",
-          "text": "Kickoff meeting — survived without a single \"per my last email\"",
+          "text": "Kickoff meeting completed",
           "created": 1786377600000,
           "deadline": null
         },
@@ -250,13 +250,13 @@
         },
         {
           "id": "launch-done3",
-          "text": "Onboarded new designer\n[x] Laptop requested\n[x] Slack added\n[x] Survived the 45-minute onboarding video",
+          "text": "Onboarded new designer\n[x] Laptop requested\n[x] Slack added\n[x] Completed onboarding training",
           "created": 1786636800000,
           "deadline": null
         },
         {
           "id": "launch-done4",
-          "text": "Ran the retro — actually got useful feedback this time",
+          "text": "Ran the sprint retro",
           "created": 1786723200000,
           "deadline": null
         },
@@ -268,7 +268,7 @@
         },
         {
           "id": "launch-done6",
-          "text": "Sent the status report nobody reads",
+          "text": "Sent the status report",
           "created": 1787155200000,
           "deadline": null
         },
@@ -290,13 +290,13 @@
       "todo": [
         {
           "id": "ops-t1",
-          "text": "Order more coffee before the team unionizes over it",
+          "text": "Order more coffee for the office",
           "created": 1787587200000,
           "deadline": null
         },
         {
           "id": "ops-t2",
-          "text": "Find a new all-hands time that isn't lunch for half the company",
+          "text": "Find a new all-hands time that works for everyone",
           "created": 1787673600000,
           "deadline": null
         }
@@ -304,7 +304,7 @@
       "doing": [
         {
           "id": "ops-doing1",
-          "text": "Rewrite the onboarding doc that still mentions the old office",
+          "text": "Update the onboarding doc",
           "created": 1787760000000,
           "deadline": null
         }
@@ -312,13 +312,13 @@
       "done": [
         {
           "id": "ops-done1",
-          "text": "Renewed the Zoom license (again)",
+          "text": "Renewed the Zoom license",
           "created": 1786636800000,
           "deadline": null
         },
         {
           "id": "ops-done2",
-          "text": "Replaced the standing desk that finally gave up",
+          "text": "Replaced the broken standing desk",
           "created": 1787068800000,
           "deadline": null
         }
