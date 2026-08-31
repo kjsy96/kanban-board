@@ -1178,24 +1178,21 @@
     text-decoration-color: var(--line);
   }
 
-  .card-list-view.clamped {
-    max-height: 190px;
-    overflow: hidden;
-    position: relative;
+  /* Line 1 of a card's text is its title -- always shown, parsed/rendered
+     the same as any other line (so a single-line checkbox/bullet "title"
+     stays a fully interactive checkbox/bullet, not plain text). Lines 2+
+     are its description, hidden by default behind the toggle below and,
+     once shown, height-capped with its own scrollbar rather than the old
+     measure-and-clamp approach -- there's no risk of an oversized *title*
+     dominating the column anymore, since only one line of it is ever
+     visible unexpanded. */
+  .card-description-view {
+    margin-top: 6px;
+    max-height: 260px;
+    overflow-y: auto;
   }
 
-  .card-list-view.clamped::after {
-    content: '';
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: 28px;
-    background: linear-gradient(to bottom, transparent, var(--paper));
-    pointer-events: none;
-  }
-
-  .card-truncate-toggle {
+  .card-details-toggle {
     display: block;
     background: none;
     border: none;
@@ -1207,7 +1204,7 @@
     cursor: pointer;
   }
 
-  .card-truncate-toggle:hover {
+  .card-details-toggle:hover {
     color: var(--todo);
     text-decoration: underline;
   }
