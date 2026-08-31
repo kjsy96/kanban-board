@@ -728,3 +728,85 @@ test('past sprints can be reopened (blocked when one is already active) or delet
 
   expect(errors, 'no console/page errors across reopen/blocked-reopen/delete flows').toEqual([]);
 });
+
+test('the "more detail" add-task modal creates a task with deadline/points, and carries over anything already typed inline', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (err) => errors.push(err.message));
+  page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()); });
+
+  await page.goto(APP_URL);
+  await page.evaluate(() => {
+    const backdrop = document.getElementById('save-warning-backdrop');
+    if (backdrop) backdrop.style.display = 'none';
+  });
+
+  // Typing inline, then opening the modal, carries the draft text over
+  // instead of losing it.
+  const input = page.locator('.add-input[data-col="todo"]');
+  await input.fill('Draft typed inline first');
+  await page.locator('.add-expand-btn[data-col="todo"]').click();
+  await expect(page.locator('#task-modal-backdrop')).toBeVisible();
+  await expect(page.locator('#task-modal-text')).toHaveValue('Draft typed inline first');
+
+  await page.locator('#task-modal-text').fill('* First bullet\n* Second bullet');
+  await page.locator('#task-modal-deadline-input').fill('2026-12-25');
+  await page.locator('#task-modal-points-input').fill('8');
+  await page.locator('#task-modal-submit').click();
+
+  await expect(page.locator('#task-modal-backdrop')).toBeHidden();
+  await expect(input).toHaveValue(''); // the inline draft is cleared, not left stale
+
+  const card = page.locator('.card', { hasText: 'First bullet' });
+  await expect(card.locator('.card-deadline')).toHaveText('due Dec 25');
+  await expect(card.locator('.card-points')).toHaveText('8 pts');
+  await expect(card.locator('.card-bullet-list li')).toHaveCount(2); // markdown-lite bullet syntax parsed same as everywhere else
+
+  // Submitting empty is rejected rather than creating a blank task.
+  await page.locator('.add-expand-btn[data-col="todo"]').click();
+  page.once('dialog', (d) => d.dismiss());
+  await page.locator('#task-modal-submit').click();
+  await expect(page.locator('#task-modal-backdrop')).toBeVisible(); // still open, nothing created
+  await expect(page.locator('[data-count="todo"]')).toHaveText('1');
+
+  // Escape and Cancel both close without creating anything.
+  await page.locator('#task-modal-text').fill('Should not be saved');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#task-modal-backdrop')).toBeHidden();
+  await expect(page.locator('[data-count="todo"]')).toHaveText('1');
+
+  expect(errors, 'no console/page errors using the add-task modal').toEqual([]);
+});
+
+test('the add-task modal is reachable in every column, both modes, including Backlog, and stays usable on a mobile viewport', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (err) => errors.push(err.message));
+  page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()); });
+
+  await page.goto(APP_URL);
+  await page.evaluate(() => {
+    const backdrop = document.getElementById('save-warning-backdrop');
+    if (backdrop) backdrop.style.display = 'none';
+  });
+  await page.locator('.view-toggle-option', { hasText: 'Scrum' }).click();
+
+  for (const col of ['backlog', 'todo', 'doing', 'review', 'done']) {
+    await page.locator('.add-expand-btn[data-col="' + col + '"]').click();
+    await expect(page.locator('#task-modal-backdrop')).toBeVisible();
+    await page.locator('#task-modal-cancel').click();
+    await expect(page.locator('#task-modal-backdrop')).toBeHidden();
+  }
+
+  // Mobile viewport: the modal must stay on-screen and usable, not clipped
+  // or pushed out past the viewport edge.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('.add-expand-btn[data-col="backlog"]').click();
+  await expect(page.locator('#task-modal-backdrop')).toBeVisible();
+  const box = await page.locator('.sprint-modal', { has: page.locator('#task-modal-text') }).boundingBox();
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(390);
+  await page.locator('#task-modal-text').fill('Mobile-entered task');
+  await page.locator('#task-modal-submit').click();
+  await expect(page.locator('#dropzone-backlog .card')).toContainText('Mobile-entered task');
+
+  expect(errors, 'no console/page errors opening the add-task modal from every column').toEqual([]);
+});

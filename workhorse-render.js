@@ -1078,20 +1078,34 @@
     touchDrag = null;
   }
 
+  // Shared by the quick-capture inline input below and the "more detail"
+  // modal, so there's exactly one place that knows how to actually create a
+  // task. Returns false (and creates nothing) if the column has nowhere to
+  // go right now -- e.g. a Scrum column other than Backlog with no active
+  // sprint.
+  function createTask(col, text, opts) {
+    const proj = activeProject();
+    const container = resolveContainer(proj, col);
+    if (!container) return false;
+    pushHistory();
+    const completedAt = (container === proj.activeSprint && col === 'done') ? todayDateStr() : null;
+    container[col].push({
+      id: uid(), text: text, created: Date.now(),
+      deadline: (opts && opts.deadline) || null,
+      points: (opts && opts.points != null) ? opts.points : null,
+      completedAt: completedAt
+    });
+    save(state);
+    return true;
+  }
+
   document.querySelectorAll('.add-input').forEach(input => {
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         const text = input.value.trim();
         if (!text) return;
-        const col = input.dataset.col;
-        const proj = activeProject();
-        const container = resolveContainer(proj, col);
-        if (!container) return; // e.g. scrum view with no active sprint yet
-        pushHistory();
-        const completedAt = (container === proj.activeSprint && col === 'done') ? todayDateStr() : null;
-        container[col].push({ id: uid(), text: text, created: Date.now(), deadline: null, points: null, completedAt: completedAt });
-        save(state);
+        if (!createTask(input.dataset.col, text, null)) return; // e.g. scrum view with no active sprint yet
         input.value = '';
         input.style.height = 'auto';
         render();
@@ -1102,6 +1116,72 @@
       input.style.height = 'auto';
       input.style.height = input.scrollHeight + 'px';
     });
+  });
+
+  // "More detail" modal -- same underlying createTask() as the quick-capture
+  // input above, just with a bigger text field and optional deadline/points
+  // set up front instead of only after the fact via the kebab menu.
+  let taskModalCol = null;
+
+  function openTaskModal(col, prefillText) {
+    taskModalCol = col;
+    const textEl = document.getElementById('task-modal-text');
+    textEl.value = prefillText || '';
+    document.getElementById('task-modal-deadline-input').value = '';
+    document.getElementById('task-modal-points-input').value = '';
+    document.getElementById('task-modal-backdrop').style.display = 'flex';
+    textEl.focus();
+    textEl.setSelectionRange(textEl.value.length, textEl.value.length); // cursor after any prefill, not selecting it
+  }
+
+  function closeTaskModal() {
+    document.getElementById('task-modal-backdrop').style.display = 'none';
+    taskModalCol = null;
+  }
+
+  function submitTaskModal() {
+    const text = document.getElementById('task-modal-text').value.trim();
+    if (!text) { alert('Write something for the task first.'); return; }
+    const deadline = document.getElementById('task-modal-deadline-input').value || null;
+    const pointsVal = document.getElementById('task-modal-points-input').value;
+    const points = pointsVal === '' ? null : Math.max(0, Math.round(Number(pointsVal)));
+    const col = taskModalCol;
+    if (!createTask(col, text, { deadline: deadline, points: points })) {
+      alert('Start a sprint before adding tasks here.');
+      return;
+    }
+    closeTaskModal();
+    const inlineInput = document.querySelector('.add-input[data-col="' + col + '"]');
+    if (inlineInput) { inlineInput.value = ''; inlineInput.style.height = 'auto'; }
+    render();
+  }
+
+  document.querySelectorAll('.add-expand-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const col = btn.dataset.col;
+      const inlineInput = document.querySelector('.add-input[data-col="' + col + '"]');
+      openTaskModal(col, inlineInput ? inlineInput.value : '');
+    });
+  });
+
+  document.getElementById('task-modal-cancel').addEventListener('click', closeTaskModal);
+  document.getElementById('task-modal-submit').addEventListener('click', submitTaskModal);
+  document.getElementById('task-modal-backdrop').addEventListener('click', (e) => {
+    if (e.target.id === 'task-modal-backdrop') closeTaskModal();
+  });
+  document.getElementById('task-modal-text').addEventListener('keydown', (e) => {
+    // Mirrors the inline add-input's own Enter-submits/Shift+Enter-newline
+    // convention, so the modal doesn't introduce a second, different way to
+    // do the same thing.
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      submitTaskModal();
+    }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.getElementById('task-modal-backdrop').style.display === 'flex') {
+      closeTaskModal();
+    }
   });
 
   document.getElementById('undo-btn').addEventListener('click', undo);

@@ -282,6 +282,12 @@
     padding: 6px 8px;
   }
 
+  .task-modal-textarea {
+    font-family: 'IBM Plex Sans', sans-serif;
+    resize: vertical;
+    min-height: 90px;
+  }
+
   .sprint-modal-dates {
     display: flex;
     gap: 12px;
@@ -1208,10 +1214,38 @@
 
   .add-row {
     margin-bottom: 12px;
+    display: flex;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  .add-expand-btn {
+    flex-shrink: 0;
+    width: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px dashed var(--line);
+    background: transparent;
+    border-radius: 10px;
+    color: var(--ink-soft);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  }
+
+  .add-expand-btn:hover {
+    border-color: var(--ink-soft);
+    border-style: solid;
+    color: var(--ink);
+    background: var(--paper);
   }
 
   .add-input {
     width: 100%;
+    flex: 1;
+    min-width: 0;
     border: 1px dashed var(--line);
     background: transparent;
     border-radius: 10px;
