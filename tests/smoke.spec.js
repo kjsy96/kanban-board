@@ -800,3 +800,104 @@ test('starting or editing a sprint with an implausibly long date range warns bef
 
   expect(errors, 'no console/page errors around the long-sprint-span warning').toEqual([]);
 });
+
+test('a card\'s creation date can be edited from the kebab menu, and can\'t be cleared', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (err) => errors.push(err.message));
+  page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()); });
+
+  await page.goto(APP_URL);
+  await page.evaluate(() => {
+    const backdrop = document.getElementById('save-warning-backdrop');
+    if (backdrop) backdrop.style.display = 'none';
+  });
+
+  const input = page.locator('.add-input[data-col="todo"]');
+  await input.fill('Task for creation date test');
+  await input.press('Enter');
+
+  const card = page.locator('.card', { hasText: 'Task for creation date test' });
+  await card.hover();
+  await card.locator('.card-menu-btn').click();
+  const createdInput = card.locator('.card-menu-deadline-row', { hasText: 'Created on' }).locator('input[type="date"]');
+
+  const today = await page.evaluate(() => todayDateStr());
+  await expect(createdInput).toHaveValue(today); // freshly created -- defaults to today
+
+  await createdInput.fill('2026-01-05');
+  await createdInput.blur();
+  await expect(card.locator('.card-date')).toHaveText('Jan 5');
+
+  await page.locator('#undo-btn').click();
+  await expect(card.locator('.card-date')).not.toHaveText('Jan 5');
+  await page.locator('#redo-btn').click();
+  await expect(card.locator('.card-date')).toHaveText('Jan 5');
+
+  // Clearing the field (e.g. an accidental full-select-and-delete) must not
+  // leave the card with no creation date -- reverts to the last valid value.
+  await card.hover();
+  await card.locator('.card-menu-btn').click();
+  const createdInput2 = card.locator('.card-menu-deadline-row', { hasText: 'Created on' }).locator('input[type="date"]');
+  await createdInput2.fill('');
+  await createdInput2.blur();
+  await expect(createdInput2).toHaveValue('2026-01-05');
+  await expect(card.locator('.card-date')).toHaveText('Jan 5');
+
+  expect(errors, 'no console/page errors editing/clearing the creation date').toEqual([]);
+});
+
+test('Start Sprint\'s backlog checklist has a working Select all toggle', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (err) => errors.push(err.message));
+  page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()); });
+
+  await page.goto(APP_URL);
+  await page.evaluate(() => {
+    const backdrop = document.getElementById('save-warning-backdrop');
+    if (backdrop) backdrop.style.display = 'none';
+  });
+  await page.locator('.view-toggle-option', { hasText: 'Scrum' }).click();
+
+  // Empty backlog: no Select all control, just the existing empty-state message.
+  await page.locator('#project-toolbar button', { hasText: 'Start Sprint' }).click();
+  await expect(page.locator('#sprint-modal-select-all')).toBeHidden();
+  await expect(page.locator('.sprint-modal-empty')).toBeVisible();
+  await page.locator('#sprint-modal-cancel').click();
+
+  const backlogInput = page.locator('.add-input[data-col="backlog"]');
+  for (const text of ['Alpha task', 'Beta task', 'Gamma task']) {
+    await backlogInput.fill(text);
+    await backlogInput.press('Enter');
+  }
+
+  await page.locator('#project-toolbar button', { hasText: 'Start Sprint' }).click();
+  const checklist = page.locator('#sprint-modal-checklist');
+  const boxes = checklist.locator('input[type="checkbox"]');
+  const selectAllBtn = page.locator('#sprint-modal-select-all');
+  await expect(selectAllBtn).toBeVisible();
+  await expect(selectAllBtn).toHaveText('Select all');
+  for (const box of await boxes.all()) await expect(box).not.toBeChecked();
+
+  // Select all: every box checks, label flips to let it also act as "deselect all".
+  await selectAllBtn.click();
+  for (const box of await boxes.all()) await expect(box).toBeChecked();
+  await expect(selectAllBtn).toHaveText('Deselect all');
+
+  // Manually unchecking one afterward isn't fought by anything.
+  await checklist.locator('.checklist-row', { hasText: 'Beta task' }).locator('input[type="checkbox"]').uncheck();
+  await expect(checklist.locator('.checklist-row', { hasText: 'Beta task' }).locator('input[type="checkbox"]')).not.toBeChecked();
+
+  // Clicking again with a partial selection re-selects everything, including Beta.
+  await selectAllBtn.click();
+  for (const box of await boxes.all()) await expect(box).toBeChecked();
+  await expect(selectAllBtn).toHaveText('Deselect all');
+
+  // Clicking once more with everything checked deselects everything.
+  await selectAllBtn.click();
+  for (const box of await boxes.all()) await expect(box).not.toBeChecked();
+  await expect(selectAllBtn).toHaveText('Select all');
+
+  await page.locator('#sprint-modal-cancel').click();
+
+  expect(errors, 'no console/page errors exercising the Select all toggle').toEqual([]);
+});
