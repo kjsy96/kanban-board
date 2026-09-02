@@ -533,6 +533,7 @@
           pointsInput.value = '';
           refreshPointsUI();
           save(state);
+          refreshBurndown();
         });
         dropdown.appendChild(clearPointsBtn);
 
@@ -580,6 +581,7 @@
           item.completedAt = e.target.value || todayDateStr();
           refreshCompletedUI();
           save(state);
+          refreshBurndown();
         });
 
         const sendDivider = document.createElement('div');
@@ -762,6 +764,7 @@
           item.points = val === '' ? null : Math.max(0, Math.round(Number(val)));
           refreshPointsUI();
           save(state);
+          refreshBurndown();
         });
 
         footerRow.appendChild(dateWrap);

@@ -1140,3 +1140,46 @@ test('the add-task modal is reachable in every column, both modes, including Bac
 
   expect(errors, 'no console/page errors opening the add-task modal from every column').toEqual([]);
 });
+
+test('burndown total grows when scope is added to an already-started sprint (issue #46)', async ({ page }) => {
+  page.on('dialog', (d) => d.accept());
+  await page.goto(APP_URL);
+  await page.evaluate(() => {
+    const backdrop = document.getElementById('save-warning-backdrop');
+    if (backdrop) backdrop.style.display = 'none';
+  });
+  await page.locator('.view-toggle-option', { hasText: 'Scrum' }).click();
+
+  await addTask(page, 'backlog', 'Task A');
+  const cardA = page.locator('.card', { hasText: 'Task A' });
+  await cardA.hover();
+  await cardA.locator('.card-menu-btn').click();
+  await cardA.locator('.card-menu-date-input[type="number"]').fill('5');
+  await cardA.locator('.card-menu-date-input[type="number"]').blur();
+  await page.keyboard.press('Escape');
+
+  await page.locator('#project-toolbar button', { hasText: 'Start Sprint' }).click();
+  await page.locator('#sprint-name-input').fill('Sprint 1');
+  await page.locator('#sprint-start-input').fill('2026-01-01');
+  await page.locator('#sprint-end-input').fill('2026-01-14');
+  await page.locator('#sprint-modal-checklist .checklist-row', { hasText: 'Task A' }).locator('input[type="checkbox"]').check();
+  await page.locator('#sprint-modal-submit').click();
+
+  await expect(page.locator('.burndown-unit')).toHaveText('5 points at start');
+
+  // Add a new task with points directly into the sprint's To do column --
+  // i.e. scope added after the sprint already started.
+  await addTask(page, 'todo', 'Task B');
+  const cardB = page.locator('.card', { hasText: 'Task B' });
+  await cardB.hover();
+  await cardB.locator('.card-menu-btn').click();
+  await cardB.locator('.card-menu-date-input[type="number"]').fill('8');
+  await cardB.locator('.card-menu-date-input[type="number"]').blur();
+  await page.keyboard.press('Escape');
+
+  // Total scope is now 13 (5 + 8) -- the header should reflect it instead
+  // of staying frozen at the sprint's starting total, and the axis top
+  // label should have grown to match, so the remaining line never clips.
+  await expect(page.locator('.burndown-unit')).toHaveText('13 points now (started with 5)');
+  await expect(page.locator('.burndown-svg text').nth(2)).toHaveText('13');
+});
