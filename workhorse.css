@@ -961,19 +961,8 @@
     opacity: 0.4;
   }
 
-  .card.editing {
-    box-shadow: var(--shadow-hover);
-    z-index: 5;
-  }
-
   .card.menu-open {
     z-index: 6;
-  }
-
-  .card.editing .card-text {
-    cursor: text;
-    box-shadow: 0 0 0 2px rgba(91,124,153,0.35);
-    border-radius: 4px;
   }
 
   .card .pin {
@@ -992,15 +981,6 @@
   .column[data-col="review"] .card .pin { background: var(--review); }
   .column[data-col="done"] .card .pin { background: var(--done); }
 
-  .card-text {
-    font-size: 14.5px;
-    line-height: 1.45;
-    white-space: pre-wrap;
-    word-break: break-word;
-    outline: none;
-  }
-
-  .card.done-state .card-text,
   .card.done-state .card-line-text {
     color: var(--ink-soft);
     text-decoration: line-through;
@@ -1116,12 +1096,19 @@
     background: var(--overlay);
   }
 
+  /* Appended directly to <body> in JS (not left nested under .card-menu) and
+     positioned in viewport coordinates there -- position: fixed on an
+     element still inside .card would be positioned relative to .card
+     instead of the viewport the moment the card is :hover'd, since
+     .card:hover's transform makes it a containing block for fixed
+     descendants. Toggled via its own .open class rather than a
+     .card-menu.open ancestor selector, since it's no longer a descendant. */
   .card-menu-dropdown {
     display: none;
-    position: absolute;
-    top: 28px;
-    right: 0;
+    position: fixed;
     min-width: 168px;
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
     background: var(--paper);
     border: 1px solid var(--line);
     border-radius: 10px;
@@ -1130,7 +1117,7 @@
     z-index: 20;
   }
 
-  .card-menu.open .card-menu-dropdown { display: block; }
+  .card-menu-dropdown.open { display: block; }
 
   .card-menu-item {
     display: block;
